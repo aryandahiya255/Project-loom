@@ -1,4 +1,12 @@
-const API_BASE_URL = "http://localhost:8000/api";
+const isLocalDevelopment =
+  window.location.protocol === "file:" ||
+  ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const API_BASE_URL = (
+  window.LOOM_API_BASE_URL ||
+  (isLocalDevelopment
+    ? "http://localhost:8000/api"
+    : "https://loom-api.onrender.com/api")
+).replace(/\/+$/, "");
 const STUDENT_CANDIDATE_ID = Number(document.body.dataset.candidateId || "1");
 
 async function apiRequest(path, options = {}) {
