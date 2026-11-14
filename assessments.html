@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f6">
+  <meta name="description" content="Take Loom's timed REST API and database skills assessment.">
+  <title>Backend Assessment — Loom</title>
+  <link rel="stylesheet" href="main.css">
+  <script src="api-client.js" defer></script>
+  <script src="quiz-engine.js" defer></script>
+</head>
+<body data-candidate-id="1">
+  <header class="site-header">
+    <nav class="nav container" aria-label="Main navigation">
+      <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>
+      <a class="nav-link" href="student-dash.html"><span aria-hidden="true">←</span> Student dashboard</a>
+    </nav>
+  </header>
+
+  <main class="assessment-page container">
+    <section class="assessment-intro" aria-labelledby="assessment-title">
+      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Technical skill check</p>
+      <h1 id="assessment-title">Backend fundamentals, <span>in focus.</span></h1>
+      <p>Five questions on REST APIs and database structures. Take your time, but keep an eye on the clock.</p>
+    </section>
+
+    <section class="assessment-card" aria-label="Timed backend assessment">
+      <div class="assessment-toolbar">
+        <div>
+          <span class="toolbar-label">Time remaining</span>
+          <span class="timer-display" id="quiz-timer" role="timer" aria-live="off">10:00</span>
+        </div>
+        <span class="question-count">5 questions · 10 minutes</span>
+      </div>
+
+      <p class="assessment-notice" id="assessment-message" role="status" aria-live="polite">
+        Your timer starts when you begin. The assessment submits automatically when time runs out.
+      </p>
+
+      <form id="quiz-form">
+        <div class="question-list" id="question-list"></div>
+        <div class="assessment-actions">
+          <button class="button button-primary" id="start-quiz" type="button">Start assessment <span aria-hidden="true">→</span></button>
+          <button class="button button-primary" id="submit-quiz" type="submit" disabled>Submit assessment <span aria-hidden="true">↗</span></button>
+        </div>
+      </form>
+
+      <section class="assessment-result" id="quiz-result" aria-live="polite" aria-atomic="true" hidden></section>
+      <p class="assessment-disclaimer">Practice assessment. A passing result is saved to your candidate profile.</p>
+    </section>
+  </main>
+
+  <footer class="footer container">
+    <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>
+    <p>Skills have a way of finding their place.</p>
+    <span class="copyright">© 2026 Loom</span>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f6">
+  <meta name="description" content="Review verified technical skills and candidate work with Loom.">
+  <title>Recruiter Portal — Loom</title>
+  <link rel="stylesheet" href="main.css">
+  <script src="api-client.js" defer></script>
+  <script src="recruiter.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav container" aria-label="Main navigation">
+      <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>
+      <a class="nav-link" href="index.html"><span aria-hidden="true">←</span> Back to home</a>
+    </nav>
+  </header>
+
+  <main class="recruiter-page container">
+    <section class="recruiter-intro" aria-labelledby="recruiter-title">
+      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Recruiter workspace</p>
+      <h1 id="recruiter-title">See the skills. <span>Find the fit.</span></h1>
+      <p>Compare verified assessments, practical skills, and proof-of-work repositories side by side.</p>
+    </section>
+
+    <section class="candidate-toolbar" aria-label="Candidate evaluation controls">
+      <div>
+        <h2>Candidate shortlist</h2>
+        <p>Profiles are loaded from the candidate API</p>
+      </div>
+      <div class="blind-control">
+        <label class="toggle-control" for="blind-evaluation">
+          <input id="blind-evaluation" type="checkbox" role="switch" aria-describedby="blind-evaluation-status">
+          <span class="toggle-track" aria-hidden="true"><span></span></span>
+          <span>Blind Evaluation Mode</span>
+        </label>
+        <p class="blind-status" id="blind-evaluation-status" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section class="candidate-grid" id="candidate-grid" aria-label="Candidate profiles"></section>
+
+    <p class="demo-disclaimer">
+      Blind mode requests a sanitized candidate response from the API. It is not a substitute for access controls
+      on a production backend.
+    </p>
+  </main>
+
+  <footer class="footer container">
+    <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>
+    <p>Skills have a way of finding their place.</p>
+    <span class="copyright">© 2026 Loom</span>
+  </footer>
+</body>
+</html>

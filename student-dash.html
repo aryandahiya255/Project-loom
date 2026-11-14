@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f6">
+  <meta name="description" content="Manage your Loom skills, proof of work, and resume.">
+  <title>Student Portal — Loom</title>
+  <link rel="stylesheet" href="main.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+  <script src="api-client.js" defer></script>
+  <script src="app.js" defer></script>
+  <script src="ats-parser.js" defer></script>
+</head>
+<body data-candidate-id="1">
+  <header class="site-header">
+    <nav class="nav container" aria-label="Main navigation">
+      <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>
+      <div class="nav-actions">
+        <a class="nav-link" href="assessments.html">Technical assessment <span aria-hidden="true">↗</span></a>
+        <a class="nav-link" href="index.html"><span aria-hidden="true">←</span> Back to home</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="dashboard container">
+    <section class="profile-header" aria-labelledby="student-name">
+      <div class="profile-avatar" aria-hidden="true">JD</div>
+      <div class="profile-copy">
+        <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Student profile</p>
+        <h1 id="student-name">Welcome, Jordan.</h1>
+        <p>Your skills tell your story. Keep your profile ready for what’s next.</p>
+      </div>
+      <span class="profile-status"><span aria-hidden="true">✓</span> Profile in progress</span>
+    </section>
+
+    <section class="dashboard-section" aria-labelledby="skills-title">
+      <div class="dashboard-section-heading">
+        <div>
+          <p class="eyebrow">Your strengths</p>
+          <h2 id="skills-title">Verified Skill Badges</h2>
+        </div>
+        <span class="section-count" id="skill-count">04 skills</span>
+      </div>
+      <ul class="skill-badges">
+        <li><span class="badge-check" aria-hidden="true">✓</span> JavaScript <span class="badge-level">Advanced</span></li>
+        <li><span class="badge-check" aria-hidden="true">✓</span> React <span class="badge-level">Proficient</span></li>
+        <li><span class="badge-check" aria-hidden="true">✓</span> Python <span class="badge-level">Proficient</span></li>
+        <li><span class="badge-check" aria-hidden="true">✓</span> UI/UX Design <span class="badge-level">Intermediate</span></li>
+      </ul>
+      <p class="form-message" id="profile-badge-message" role="status" aria-live="polite"></p>
+    </section>
+
+    <div class="dashboard-grid">
+      <section class="dashboard-card" aria-labelledby="proof-title">
+        <div class="dashboard-section-heading">
+          <div>
+            <p class="eyebrow">Make your work visible</p>
+            <h2 id="proof-title">Proof-of-Work</h2>
+          </div>
+          <span class="card-icon" aria-hidden="true">↗</span>
+        </div>
+        <p class="card-description">Add GitHub repositories that show your skills in action.</p>
+        <form class="proof-form" id="github-form">
+          <label for="github-url">GitHub repository URL</label>
+          <div class="input-row">
+            <input id="github-url" name="github-url" type="url" placeholder="https://github.com/you/project" required>
+            <button class="button button-primary" type="submit">Add repository <span aria-hidden="true">+</span></button>
+          </div>
+          <p class="form-message" id="github-message" role="status" aria-live="polite"></p>
+        </form>
+        <ul class="repository-list" id="repository-list" aria-label="Saved repositories"></ul>
+      </section>
+
+      <section class="dashboard-card resume-card" aria-labelledby="resume-title">
+        <div class="dashboard-section-heading">
+          <div>
+            <p class="eyebrow">A little more about you</p>
+            <h2 id="resume-title">Your resume</h2>
+          </div>
+          <span class="card-icon" aria-hidden="true">↓</span>
+        </div>
+        <p class="card-description">Add a resume so teams can learn more about your experience.</p>
+        <div class="upload-zone" id="resume-upload" role="button" tabindex="0" aria-describedby="resume-help resume-file-name">
+          <input id="resume-file" type="file" accept=".txt,text/plain,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" tabindex="-1" aria-hidden="true" hidden>
+          <span class="upload-icon" aria-hidden="true">↑</span>
+          <strong>Drop your resume here</strong>
+          <span>or <span class="upload-browse">browse files</span></span>
+          <span class="upload-help" id="resume-help">TXT, PDF, or DOCX</span>
+        </div>
+        <p class="upload-file-name" id="resume-file-name" role="status" aria-live="polite">No file selected</p>
+        <p class="form-message" id="resume-message" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <section class="dashboard-card ats-card" aria-labelledby="ats-title">
+      <div class="dashboard-section-heading">
+        <div>
+          <p class="eyebrow">AI evaluation, not hiring advice</p>
+          <h2 id="ats-title">Resume ATS Parser</h2>
+        </div>
+        <span class="card-icon" aria-hidden="true">⌕</span>
+      </div>
+      <p class="card-description">
+        Paste resume text or upload a TXT, PDF, or DOCX file for an ATS evaluation against Full-Stack Developer requirements.
+        Resume text is sent to the local API and its configured Gemini provider.
+      </p>
+      <form class="ats-form" id="resume-analysis-form">
+        <label for="resume-text">Resume text</label>
+        <textarea id="resume-text" name="resume-text" rows="8" placeholder="Paste text from your resume here..." required></textarea>
+        <div class="ats-form-footer">
+          <p class="form-message" id="analysis-message" role="status" aria-live="polite"></p>
+          <button class="button button-primary" type="submit">Analyze resume <span aria-hidden="true">↗</span></button>
+        </div>
+      </form>
+      <section class="ats-results" aria-labelledby="skill-gap-title">
+        <div class="dashboard-section-heading">
+          <h2 id="skill-gap-title">Skill Gap Chart</h2>
+          <span class="section-count">Full-Stack Developer</span>
+        </div>
+        <div class="skill-gap-chart" id="skill-gap-chart" aria-live="polite" aria-atomic="true">
+          <p class="chart-placeholder">Your technology coverage and missing skills will appear here after analysis.</p>
+        </div>
+        <details class="feedback-json">
+          <summary>View structured feedback JSON</summary>
+          <pre id="analysis-json">No analysis yet.</pre>
+        </details>
+      </section>
+    </section>
+  </main>
+
+  <footer class="footer container">
+    <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>
+    <p>Skills have a way of finding their place.</p>
+    <span class="copyright">© 2026 Loom</span>
+  </footer>
+</body>
+</html>
