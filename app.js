@@ -233,3 +233,172 @@ resumeUpload.addEventListener("drop", (event) => {
 });
 
 void loadStudentProfile();
+
+const authDialog = document.querySelector("#auth-dialog");
+const authOpenButton = document.querySelector("#auth-open");
+const authCloseButton = document.querySelector("#auth-close");
+const signupForm = document.querySelector("#signup-panel");
+const signinForm = document.querySelector("#signin-panel");
+const signupTab = document.querySelector("#signup-tab");
+const signinTab = document.querySelector("#signin-tab");
+const signupMessage = document.querySelector("#signup-message");
+const signinMessage = document.querySelector("#signin-message");
+const profileName = document.querySelector("#student-name");
+const profileEmail = document.querySelector("#student-email");
+const profileWelcome = document.querySelector("#student-welcome");
+const profileLabel = document.querySelector("#profile-label");
+const profileAvatar = document.querySelector(".profile-avatar");
+const profileHeader = document.querySelector(".profile-header");
+const profileStatus = document.querySelector("#profile-status");
+const profileStatusIcon = profileStatus.querySelector("span");
+const signOutButton = document.querySelector("#auth-sign-out");
+const accounts = new Map();
+let authReturnFocus = null;
+
+function showAuthMessage(element, message, isError = false) {
+  element.textContent = message;
+  element.classList.toggle("is-error", isError);
+}
+
+function activateAuthTab(mode, moveFocus = false) {
+  const isSignup = mode === "signup";
+  signupTab.classList.toggle("is-active", isSignup);
+  signinTab.classList.toggle("is-active", !isSignup);
+  signupTab.setAttribute("aria-selected", String(isSignup));
+  signinTab.setAttribute("aria-selected", String(!isSignup));
+  signupTab.tabIndex = isSignup ? 0 : -1;
+  signinTab.tabIndex = isSignup ? -1 : 0;
+  signupForm.hidden = !isSignup;
+  signinForm.hidden = isSignup;
+  showAuthMessage(signupMessage, "");
+  showAuthMessage(signinMessage, "");
+  if (moveFocus) {
+    (isSignup ? document.querySelector("#signup-name") : document.querySelector("#signin-email")).focus();
+  }
+}
+
+function renderActiveAccount(account) {
+  profileHeader.classList.add("is-authenticated");
+  profileName.textContent = account.name;
+  profileEmail.textContent = account.email;
+  profileEmail.hidden = false;
+  profileWelcome.hidden = true;
+  profileLabel.textContent = "Active student profile";
+  profileAvatar.textContent = account.name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join("")
+    .toUpperCase();
+  profileStatusIcon.textContent = "✓";
+  profileStatus.lastChild.textContent = " Active profile";
+  authOpenButton.hidden = true;
+  signOutButton.hidden = false;
+}
+
+function resetActiveAccount() {
+  profileHeader.classList.remove("is-authenticated");
+  profileName.textContent = "Your student profile";
+  profileEmail.textContent = "";
+  profileEmail.hidden = true;
+  profileWelcome.hidden = false;
+  profileLabel.textContent = "Student profile";
+  profileAvatar.textContent = "JD";
+  profileStatus.lastChild.textContent = " Student portal";
+  authOpenButton.hidden = false;
+  signOutButton.hidden = true;
+}
+
+function openAuthDialog(mode = "signup") {
+  authReturnFocus = document.activeElement;
+  activateAuthTab(mode);
+  authDialog.showModal();
+  (mode === "signup"
+    ? document.querySelector("#signup-name")
+    : document.querySelector("#signin-email")).focus();
+}
+
+signupTab.addEventListener("click", () => activateAuthTab("signup"));
+signinTab.addEventListener("click", () => activateAuthTab("signin"));
+
+[signupTab, signinTab].forEach((tab) => {
+  tab.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      const mode = event.key === "Home"
+        ? "signup"
+        : event.key === "End"
+          ? "signin"
+          : tab === signupTab
+            ? "signin"
+            : "signup";
+      activateAuthTab(mode, true);
+    }
+  });
+});
+
+authOpenButton.addEventListener("click", () => openAuthDialog("signup"));
+authCloseButton.addEventListener("click", () => authDialog.close());
+authDialog.addEventListener("click", (event) => {
+  if (event.target === authDialog) {
+    authDialog.close();
+  }
+});
+authDialog.addEventListener("close", () => {
+  if (authReturnFocus instanceof HTMLElement) {
+    authReturnFocus.focus();
+  }
+});
+
+signupForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  showAuthMessage(signupMessage, "");
+  const values = new FormData(signupForm);
+  const account = {
+    name: String(values.get("name")).trim(),
+    email: String(values.get("email")).trim().toLowerCase(),
+    password: String(values.get("password")),
+    school: String(values.get("school")).trim(),
+    major: String(values.get("major")).trim(),
+    role: String(values.get("role")).trim(),
+    github: String(values.get("github")).trim()
+  };
+  if ([account.name, account.email, account.school, account.major, account.role, account.github].some((value) => !value)) {
+    showAuthMessage(signupMessage, "Complete each profile field before continuing.", true);
+    return;
+  }
+  if (accounts.has(account.email)) {
+    showAuthMessage(signupMessage, "An account with this email already exists. Sign in instead.", true);
+    return;
+  }
+
+  accounts.set(account.email, account);
+  renderActiveAccount(account);
+  authDialog.close();
+  signupForm.reset();
+});
+
+signinForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  showAuthMessage(signinMessage, "");
+  const values = new FormData(signinForm);
+  const email = String(values.get("email")).trim().toLowerCase();
+  const account = accounts.get(email);
+  if (!account || account.password !== String(values.get("password"))) {
+    showAuthMessage(
+      signinMessage,
+      "We couldn't find a matching account in this page session. Sign up to create one.",
+      true
+    );
+    return;
+  }
+
+  renderActiveAccount(account);
+  authDialog.close();
+  signinForm.reset();
+});
+
+signOutButton.addEventListener("click", () => {
+  resetActiveAccount();
+});

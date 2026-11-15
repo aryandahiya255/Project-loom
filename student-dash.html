@@ -27,11 +27,16 @@
     <section class="profile-header" aria-labelledby="student-name">
       <div class="profile-avatar" aria-hidden="true">JD</div>
       <div class="profile-copy">
-        <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Student profile</p>
-        <h1 id="student-name">Welcome, Jordan.</h1>
-        <p>Your skills tell your story. Keep your profile ready for what’s next.</p>
+        <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> <span id="profile-label">Student profile</span></p>
+        <h1 id="student-name">Your student profile</h1>
+        <p id="student-email" hidden></p>
+        <p id="student-welcome">Sign in or create an account to personalize your dashboard.</p>
       </div>
-      <span class="profile-status"><span aria-hidden="true">✓</span> Profile in progress</span>
+      <div class="profile-actions">
+        <button class="button button-primary" id="auth-open" type="button">Sign in / Sign up</button>
+        <button class="button button-secondary" id="auth-sign-out" type="button" hidden>Sign out</button>
+        <span class="profile-status" id="profile-status"><span aria-hidden="true">✓</span> Student portal</span>
+      </div>
     </section>
 
     <section class="dashboard-section" aria-labelledby="skills-title">
@@ -128,6 +133,58 @@
       </section>
     </section>
   </main>
+
+  <dialog class="auth-dialog" id="auth-dialog" aria-labelledby="auth-title">
+    <div class="auth-card">
+      <button class="auth-close" id="auth-close" type="button" aria-label="Close sign in dialog">×</button>
+      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Your next chapter</p>
+      <h2 id="auth-title">Welcome to Loom</h2>
+      <p class="auth-description">Build a profile that puts your skills and ambitions first.</p>
+      <div class="auth-tabs" role="tablist" aria-label="Account options">
+        <button class="auth-tab is-active" id="signup-tab" type="button" role="tab" aria-selected="true" aria-controls="signup-panel">Sign Up</button>
+        <button class="auth-tab" id="signin-tab" type="button" role="tab" aria-selected="false" aria-controls="signin-panel" tabindex="-1">Sign In</button>
+      </div>
+      <form class="auth-form" id="signup-panel" role="tabpanel" aria-labelledby="signup-tab">
+        <div class="auth-fields">
+          <label class="auth-field" for="signup-name">Full Name
+            <input id="signup-name" name="name" type="text" autocomplete="name" maxlength="120" placeholder="Jordan Doe" required>
+          </label>
+          <label class="auth-field" for="signup-email">Email
+            <input id="signup-email" name="email" type="email" autocomplete="email" maxlength="254" placeholder="you@university.edu" required>
+          </label>
+          <label class="auth-field" for="signup-password">Password
+            <input id="signup-password" name="password" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters" required>
+          </label>
+          <label class="auth-field" for="signup-school">University / College Name
+            <input id="signup-school" name="school" type="text" autocomplete="organization" maxlength="160" placeholder="Your university" required>
+          </label>
+          <label class="auth-field" for="signup-major">Degree / Major
+            <input id="signup-major" name="major" type="text" maxlength="120" placeholder="B.S. Computer Science" required>
+          </label>
+          <label class="auth-field" for="signup-role">Target Role
+            <input id="signup-role" name="role" type="text" maxlength="120" placeholder="Full-Stack Developer" required>
+          </label>
+          <label class="auth-field" for="signup-github">GitHub Username
+            <input id="signup-github" name="github" type="text" autocomplete="username" maxlength="39" pattern="[A-Za-z0-9\-]+" title="Use letters, numbers, and hyphens only." placeholder="your-handle" required>
+          </label>
+        </div>
+        <p class="auth-message" id="signup-message" role="status" aria-live="polite"></p>
+        <button class="button button-primary auth-submit" type="submit">Create your account <span aria-hidden="true">↗</span></button>
+      </form>
+      <form class="auth-form" id="signin-panel" role="tabpanel" aria-labelledby="signin-tab" hidden>
+        <div class="auth-fields auth-fields-single">
+          <label class="auth-field" for="signin-email">Email
+            <input id="signin-email" name="email" type="email" autocomplete="email" maxlength="254" placeholder="you@university.edu" required>
+          </label>
+          <label class="auth-field" for="signin-password">Password
+            <input id="signin-password" name="password" type="password" autocomplete="current-password" required>
+          </label>
+        </div>
+        <p class="auth-message" id="signin-message" role="status" aria-live="polite"></p>
+        <button class="button button-primary auth-submit" type="submit">Sign in <span aria-hidden="true">↗</span></button>
+      </form>
+    </div>
+  </dialog>
 
   <footer class="footer container">
     <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>

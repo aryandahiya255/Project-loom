@@ -1,4 +1,6 @@
 fastapi
+pwdlib[argon2]
+PyJWT
 python-multipart
 pypdf
 sqlalchemy

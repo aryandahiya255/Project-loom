@@ -7,6 +7,7 @@ Set FRONTEND_URL to the deployed frontend origin. FRONTEND_ORIGINS can contain
 additional comma-separated browser origins.
 Set GEMINI_API_KEY to enable resume analysis, and optionally GEMINI_MODEL to
 choose the Google Gen AI model. Set REDIS_URL to configure assessment sessions.
+Set JWT_SECRET_KEY to a secret of at least 32 characters to enable authentication.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from io import BytesIO
 import json
 from collections import Counter
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import AsyncIterator, Generator
 from urllib.parse import urlparse
@@ -28,16 +29,34 @@ from zipfile import BadZipFile, ZipFile
 import redis.asyncio as redis
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from google import genai
 from google.genai.errors import APIError
 from google.genai.types import GenerateContentConfig, Part
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+import jwt
+from jwt.exceptions import InvalidTokenError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
+from pwdlib import PasswordHash
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, create_engine, select
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    create_engine,
+    func,
+    inspect,
+    select,
+    text,
+)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import (
     Mapped,
     Session,
@@ -60,6 +79,9 @@ class Candidate(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True, nullable=False)
+    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    college_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    target_role: Mapped[str | None] = mapped_column(String(120), nullable=True)
     github_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     profile_photo_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     bio: Mapped[str | None] = mapped_column(String(5000), nullable=True)
@@ -125,6 +147,53 @@ class CandidateRead(CandidateCreate):
 
     id: int
     created_at: datetime
+
+
+class UserRegister(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: str = Field(
+        min_length=3,
+        max_length=254,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    )
+    password: str = Field(min_length=8, max_length=128)
+    college_name: str = Field(min_length=1, max_length=160)
+    target_role: str = Field(min_length=1, max_length=120)
+    github_url: str = Field(min_length=1, max_length=2048)
+
+    @field_validator("name", "college_name", "target_role", "github_url")
+    @classmethod
+    def strip_nonempty_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("This field must not be blank.")
+        return value
+
+
+class UserLogin(BaseModel):
+    email: str = Field(
+        min_length=3,
+        max_length=254,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    )
+    password: str = Field(min_length=1, max_length=128)
+
+
+class UserProfileRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    email: str
+    college_name: str | None
+    target_role: str | None
+    github_url: str | None
+    created_at: datetime
+
+
+class AccessTokenRead(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 
 class VerifiedScoreRead(BaseModel):
@@ -362,7 +431,32 @@ def _allowed_origins() -> list[str]:
 DATABASE_URL = _database_url()
 engine = create_engine(DATABASE_URL, pool_pre_ping=True) if DATABASE_URL else None
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False) if engine else None
+PASSWORD_HASHER = PasswordHash.recommended()
+_DUMMY_PASSWORD_HASH = PASSWORD_HASHER.hash("not-a-valid-password")
+BEARER_SCHEME = HTTPBearer(auto_error=False)
+JWT_ALGORITHM = "HS256"
+JWT_ACCESS_TOKEN_MINUTES = 30
 redis_client: Redis | None = None
+
+
+def _migrate_candidate_auth_columns() -> None:
+    if engine is None:
+        return
+
+    column_definitions = {
+        "hashed_password": "VARCHAR(255)",
+        "college_name": "VARCHAR(160)",
+        "target_role": "VARCHAR(120)",
+    }
+    existing_columns = {
+        column["name"] for column in inspect(engine).get_columns("candidates")
+    }
+    with engine.begin() as connection:
+        for column_name, column_type in column_definitions.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    text(f"ALTER TABLE candidates ADD COLUMN {column_name} {column_type}")
+                )
 
 
 @asynccontextmanager
@@ -371,6 +465,7 @@ async def lifespan(_: FastAPI):
 
     if engine is not None:
         Base.metadata.create_all(bind=engine)
+        _migrate_candidate_auth_columns()
 
     redis_client = redis.from_url(
         os.getenv("REDIS_URL", "redis://localhost:6379/0"),
@@ -405,6 +500,66 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+def _jwt_secret_key() -> str:
+    secret_key = os.getenv("JWT_SECRET_KEY", "")
+    if len(secret_key) < 32:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication is not configured. Set JWT_SECRET_KEY to at least 32 characters.",
+        )
+    return secret_key
+
+
+def _create_access_token(candidate_id: int) -> str:
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=JWT_ACCESS_TOKEN_MINUTES)
+    return jwt.encode(
+        {"sub": str(candidate_id), "exp": expires_at},
+        _jwt_secret_key(),
+        algorithm=JWT_ALGORITHM,
+    )
+
+
+def get_current_candidate(
+    credentials: HTTPAuthorizationCredentials | None = Depends(BEARER_SCHEME),
+    db: Session = Depends(get_db),
+) -> Candidate:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        claims = jwt.decode(
+            credentials.credentials,
+            _jwt_secret_key(),
+            algorithms=[JWT_ALGORITHM],
+            options={"require": ["exp", "sub"]},
+        )
+        subject = claims.get("sub")
+        if not isinstance(subject, str) or not subject.isdigit():
+            raise ValueError("Invalid token subject.")
+        candidate_id = int(subject)
+        if candidate_id < 1:
+            raise ValueError("Invalid token subject.")
+    except (InvalidTokenError, TypeError, ValueError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired access token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from error
+
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired access token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return candidate
 
 
 async def get_redis() -> AsyncIterator[Redis]:
@@ -742,6 +897,70 @@ def create_candidate(payload: CandidateCreate, db: Session = Depends(get_db)) ->
     db.add(candidate)
     db.commit()
     db.refresh(candidate)
+    return candidate
+
+
+@app.post(
+    "/api/auth/register",
+    response_model=UserProfileRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_user(payload: UserRegister, db: Session = Depends(get_db)) -> Candidate:
+    email = payload.email.strip().lower()
+    existing_candidate = db.scalar(
+        select(Candidate).where(func.lower(Candidate.email) == email)
+    )
+    if existing_candidate is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A candidate with this email already exists.",
+        )
+
+    candidate = Candidate(
+        name=payload.name.strip(),
+        email=email,
+        hashed_password=PASSWORD_HASHER.hash(payload.password),
+        college_name=payload.college_name.strip(),
+        target_role=payload.target_role.strip(),
+        github_url=payload.github_url,
+    )
+    db.add(candidate)
+    try:
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A candidate with this email already exists.",
+        ) from error
+    db.refresh(candidate)
+    return candidate
+
+
+@app.post("/api/auth/login", response_model=AccessTokenRead)
+def login_user(payload: UserLogin, db: Session = Depends(get_db)) -> AccessTokenRead:
+    email = payload.email.strip().lower()
+    candidate = db.scalar(select(Candidate).where(func.lower(Candidate.email) == email))
+    password_hash = (
+        candidate.hashed_password
+        if candidate is not None and candidate.hashed_password is not None
+        else _DUMMY_PASSWORD_HASH
+    )
+    password_is_valid = PASSWORD_HASHER.verify(payload.password, password_hash)
+    if candidate is None or candidate.hashed_password is None or not password_is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return AccessTokenRead(access_token=_create_access_token(candidate.id))
+
+
+@app.get("/api/auth/me", response_model=UserProfileRead)
+def read_authenticated_user(
+    candidate: Candidate = Depends(get_current_candidate),
+) -> Candidate:
     return candidate
 
 
