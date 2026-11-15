@@ -425,7 +425,6 @@ class CandidateBlindRead(BaseModel):
 
 class CandidateFullRead(CandidateBlindRead):
     name: str
-    email: str
     profile_photo_url: str | None
     github_url: str | None
     bio: str | None
