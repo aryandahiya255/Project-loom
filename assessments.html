@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f8f6">
-  <meta name="description" content="Take Loom's timed REST API and database skills assessment.">
-  <title>Backend Assessment — Loom</title>
+  <meta name="description" content="Choose a Loom technical assessment and verify your skills.">
+  <title>Technical Assessments — Loom</title>
   <link rel="stylesheet" href="main.css">
   <script src="api-client.js" defer></script>
   <script src="quiz-engine.js" defer></script>
 </head>
-<body data-candidate-id="1">
+<body>
   <header class="site-header">
     <nav class="nav container" aria-label="Main navigation">
       <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>
@@ -21,35 +21,65 @@
   <main class="assessment-page container">
     <section class="assessment-intro" aria-labelledby="assessment-title">
       <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Technical skill check</p>
-      <h1 id="assessment-title">Backend fundamentals, <span>in focus.</span></h1>
-      <p>Five questions on REST APIs and database structures. Take your time, but keep an eye on the clock.</p>
+      <h1 id="assessment-title">Choose a domain. <span>Show what you know.</span></h1>
+      <p>Take a focused, 10-minute assessment. Scores of 80% or higher earn a verified subject badge on your profile.</p>
     </section>
 
-    <section class="assessment-card" aria-label="Timed backend assessment">
+    <section class="assessment-subjects" aria-labelledby="subject-selection-title">
+      <div class="assessment-section-heading">
+        <div>
+          <p class="eyebrow">Your next skill signal</p>
+          <h2 id="subject-selection-title">Select Assessment Domain</h2>
+        </div>
+      </div>
+      <p class="assessment-notice" id="subjects-message" role="status" aria-live="polite">Loading assessment domains...</p>
+      <div class="assessment-subject-grid" id="subject-cards-grid" aria-busy="true"></div>
+    </section>
+
+    <section class="assessment-card" id="quiz-container" aria-label="Timed assessment" hidden>
       <div class="assessment-toolbar">
         <div>
           <span class="toolbar-label">Time remaining</span>
           <span class="timer-display" id="quiz-timer" role="timer" aria-live="off">10:00</span>
         </div>
-        <span class="question-count">5 questions · 10 minutes</span>
+        <span class="question-count"></span>
       </div>
 
-      <p class="assessment-notice" id="assessment-message" role="status" aria-live="polite">
-        Your timer starts when you begin. The assessment submits automatically when time runs out.
-      </p>
+      <p class="assessment-notice" id="assessment-message" role="status" aria-live="polite"></p>
 
       <form id="quiz-form">
         <div class="question-list" id="question-list"></div>
         <div class="assessment-actions">
-          <button class="button button-primary" id="start-quiz" type="button">Start assessment <span aria-hidden="true">→</span></button>
           <button class="button button-primary" id="submit-quiz" type="submit" disabled>Submit assessment <span aria-hidden="true">↗</span></button>
         </div>
       </form>
 
-      <section class="assessment-result" id="quiz-result" aria-live="polite" aria-atomic="true" hidden></section>
-      <p class="assessment-disclaimer">Practice assessment. A passing result is saved to your candidate profile.</p>
+      <p class="assessment-disclaimer">Your answers are graded securely by Loom. A passing result is saved to your candidate profile.</p>
     </section>
   </main>
+
+  <dialog class="assessment-dialog" id="start-assessment-dialog" aria-labelledby="start-assessment-title">
+    <div class="assessment-dialog-card">
+      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Ready when you are</p>
+      <h2 id="start-assessment-title">Are you ready to start the <span id="confirm-subject-title"></span> assessment?</h2>
+      <p>You will have 10 minutes to complete the questions. Your timer starts when you begin.</p>
+      <p class="assessment-dialog-message" id="start-assessment-message" role="status" aria-live="polite"></p>
+      <div class="assessment-dialog-actions">
+        <button class="button button-secondary" id="cancel-assessment" type="button">Not yet</button>
+        <button class="button button-primary" id="confirm-start-assessment" type="button">Start assessment <span aria-hidden="true">→</span></button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="assessment-dialog assessment-result-dialog" id="quiz-result-dialog" aria-labelledby="quiz-result-heading">
+    <div class="assessment-dialog-card">
+      <section class="assessment-result" id="quiz-result" aria-live="polite" aria-atomic="true"></section>
+      <div class="assessment-dialog-actions">
+        <button class="button button-secondary" id="choose-another-assessment" type="button">Choose another domain</button>
+        <a class="button button-primary result-link" id="profile-result-link" href="student-dash.html">View Verified Badge on Profile</a>
+      </div>
+    </div>
+  </dialog>
 
   <footer class="footer container">
     <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>

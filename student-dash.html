@@ -11,6 +11,7 @@
   <script src="api-client.js" defer></script>
   <script src="app.js" defer></script>
   <script src="ats-parser.js" defer></script>
+  <script src="js/chat-assistant.js" defer></script>
 </head>
 <body data-candidate-id="1">
   <header class="site-header">
@@ -58,14 +59,9 @@
           <p class="eyebrow">Your strengths</p>
           <h2 id="skills-title">Verified Skill Badges</h2>
         </div>
-        <span class="section-count" id="skill-count">04 skills</span>
+        <span class="section-count" id="skill-count">00 verified subjects</span>
       </div>
-      <ul class="skill-badges">
-        <li><span class="badge-check" aria-hidden="true">✓</span> JavaScript <span class="badge-level">Advanced</span></li>
-        <li><span class="badge-check" aria-hidden="true">✓</span> React <span class="badge-level">Proficient</span></li>
-        <li><span class="badge-check" aria-hidden="true">✓</span> Python <span class="badge-level">Proficient</span></li>
-        <li><span class="badge-check" aria-hidden="true">✓</span> UI/UX Design <span class="badge-level">Intermediate</span></li>
-      </ul>
+      <ul class="skill-badges" aria-label="Verified assessment badges"></ul>
       <p class="form-message" id="profile-badge-message" role="status" aria-live="polite"></p>
     </section>
 
@@ -198,6 +194,57 @@
       </form>
     </div>
   </dialog>
+
+  <button
+    class="ai-chat-trigger"
+    id="ai-chat-trigger"
+    type="button"
+    aria-controls="ai-chat-drawer"
+    aria-expanded="false"
+  >
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2v-6a7.5 7.5 0 1 1 17-3.5Z" />
+      <path d="M8 11h8M8 14h5" />
+    </svg>
+    <span>AI Career Coach</span>
+  </button>
+
+  <aside
+    class="ai-chat-drawer"
+    id="ai-chat-drawer"
+    role="dialog"
+    aria-labelledby="ai-chat-title"
+    aria-modal="false"
+    hidden
+  >
+    <header class="ai-chat-header">
+      <div>
+        <h2 id="ai-chat-title">Loom AI Assistant</h2>
+        <span class="ai-chat-online"><span aria-hidden="true"></span> Online</span>
+      </div>
+      <button class="ai-chat-close" id="ai-chat-close" type="button" aria-label="Close AI Career Coach">−</button>
+    </header>
+    <p class="ai-chat-context" id="ai-chat-context">Context: Analyze your resume for tailored tips.</p>
+    <div class="ai-chat-messages" id="chat-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Career coach conversation">
+      <article class="ai-chat-message is-model is-welcome">
+        <span class="ai-chat-speaker">Loom AI Assistant</span>
+        <p>Hi! I can help you strengthen your resume, plan skill development, or choose a project that supports your goals.</p>
+      </article>
+    </div>
+    <div class="ai-chat-prompts" role="group" aria-label="Suggested prompts">
+      <button type="button" data-chat-prompt="How do I learn missing skills?">How do I learn missing skills?</button>
+      <button type="button" data-chat-prompt="Improve my resume bullets">Improve my resume bullets</button>
+      <button type="button" data-chat-prompt="Create a 30-Day Action Plan">30-Day Action Plan</button>
+    </div>
+    <form class="ai-chat-form" id="chat-form">
+      <label class="visually-hidden" for="chat-input">Ask the AI Career Coach</label>
+      <input id="chat-input" name="message" type="text" maxlength="4000" autocomplete="off" placeholder="Ask a career question..." required>
+      <button class="ai-chat-send" id="chat-send" type="submit">
+        <span class="ai-chat-spinner" id="chat-spinner" aria-hidden="true" hidden></span>
+        <span id="chat-send-label">Send</span>
+      </button>
+    </form>
+  </aside>
 
   <footer class="footer container">
     <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>

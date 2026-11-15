@@ -229,29 +229,61 @@ function renderGithubLinks(links) {
   });
 }
 
-function renderProfileBadges(badges) {
-  const hasBackendBadge = badges.some((badge) => badge.name === "Verified Backend");
-  if (hasBackendBadge) {
-    const alreadyRendered = [...skillBadges.children].some((item) => (
-      item.textContent.includes("Verified Backend")
-    ));
-    if (!alreadyRendered) {
-      const badge = document.createElement("li");
-      const check = document.createElement("span");
-      check.className = "badge-check";
-      check.setAttribute("aria-hidden", "true");
-      check.textContent = "✓";
-      const label = document.createElement("span");
-      label.textContent = "Verified Backend";
-      const level = document.createElement("span");
-      level.className = "badge-level";
-      level.textContent = "Assessment passed";
-      badge.append(check, label, level);
-      skillBadges.append(badge);
+function renderProfileBadges(scores) {
+  const verifiedBySubject = new Map();
+  scores.forEach((score) => {
+    if (
+      score.verified_status === true
+      && score.score >= 80
+      && typeof score.subject_code === "string"
+      && !verifiedBySubject.has(score.subject_code)
+    ) {
+      verifiedBySubject.set(score.subject_code, score);
     }
-  }
+  });
 
-  skillCount.textContent = `${String(skillBadges.children.length).padStart(2, "0")} skills`;
+  skillBadges.replaceChildren();
+  verifiedBySubject.forEach((score) => {
+    const badge = document.createElement("li");
+    const check = document.createElement("span");
+    check.className = "badge-check";
+    check.setAttribute("aria-hidden", "true");
+    check.textContent = "✓";
+    const label = document.createElement("span");
+    label.textContent = `${score.subject_title}: ${score.score}% (Verified)`;
+    badge.append(check, label);
+    skillBadges.append(badge);
+  });
+  if (verifiedBySubject.size === 0) {
+    const emptyState = document.createElement("li");
+    emptyState.className = "assessment-badge-empty";
+    emptyState.textContent = "Complete an assessment with 80% or higher to earn a verified subject badge.";
+    skillBadges.append(emptyState);
+  }
+  skillCount.textContent = `${String(verifiedBySubject.size).padStart(2, "0")} verified subject${verifiedBySubject.size === 1 ? "" : "s"}`;
+}
+
+async function loadCandidateScores() {
+  if (!sessionStorage.getItem("loom_access_token")) {
+    renderProfileBadges([]);
+    showMessage(profileBadgeMessage, "Sign in to view your verified assessment badges.");
+    return;
+  }
+  try {
+    const scores = await window.loomApi.request("/candidate/scores");
+    if (!Array.isArray(scores)) {
+      throw new Error("The assessment scores response was invalid.");
+    }
+    renderProfileBadges(scores);
+    showMessage(profileBadgeMessage, "");
+  } catch (error) {
+    renderProfileBadges([]);
+    showMessage(
+      profileBadgeMessage,
+      error instanceof Error ? error.message : "Could not load assessment scores.",
+      true
+    );
+  }
 }
 
 async function loadStudentProfile() {
@@ -259,17 +291,16 @@ async function loadStudentProfile() {
     const profile = await window.loomApi.request(
       `/candidates/${window.loomApi.candidateId}/profile`
     );
-    if (!Array.isArray(profile.github_repos) || !Array.isArray(profile.badges)) {
+    if (!Array.isArray(profile.github_repos)) {
       throw new Error("The candidate profile response was invalid.");
     }
     renderGithubLinks(profile.github_repos);
-    renderProfileBadges(profile.badges);
     showMessage(githubMessage, "");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not load the candidate profile.";
     showMessage(githubMessage, message, true);
-    showMessage(profileBadgeMessage, message, true);
   }
+  await loadCandidateScores();
 }
 
 githubForm.addEventListener("submit", async (event) => {
@@ -441,7 +472,20 @@ function activateAuthTab(mode, moveFocus = false) {
 }
 
 function renderActiveAccount(account) {
+  const previousCandidateId = window.loomApi.candidateId;
   window.loomApi.setCandidateId(account.id);
+  const atsCandidateId = sessionStorage.getItem("loom_ats_candidate_id");
+  if (atsCandidateId && atsCandidateId !== String(account.id)) {
+    sessionStorage.removeItem("loom_ats_candidate_id");
+  }
+  if (typeof account.target_role === "string" && account.target_role.trim()) {
+    sessionStorage.setItem("loom_target_role", account.target_role.trim());
+  } else {
+    sessionStorage.removeItem("loom_target_role");
+  }
+  if (previousCandidateId !== account.id) {
+    window.dispatchEvent(new Event("loom:candidate-account-changed"));
+  }
   profileHeader.classList.add("is-authenticated");
   profileName.textContent = account.name;
   profileEmail.textContent = account.email;
@@ -464,6 +508,9 @@ function renderActiveAccount(account) {
 
 function resetActiveAccount() {
   window.loomApi.setCandidateId(Number(document.body.dataset.candidateId || "1"));
+  sessionStorage.removeItem("loom_target_role");
+  sessionStorage.removeItem("loom_ats_candidate_id");
+  window.dispatchEvent(new Event("loom:candidate-account-changed"));
   profileHeader.classList.remove("is-authenticated");
   profileName.textContent = "Your student profile";
   profileEmail.textContent = "";

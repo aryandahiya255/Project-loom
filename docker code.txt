@@ -1,0 +1,29 @@
+# Base image with Python 3.11 lightweight Linux distribution
+FROM python:3.11-slim
+
+# Prevent Python from writing .pyc files to disk and ensure output is logged in real-time
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Set workspace directory inside the container
+WORKDIR /app
+
+# Install system dependencies needed for C compilation and PostgreSQL/PDF parsing tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file and install Python packages
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy all application code into the container
+COPY . /app/
+
+# Expose default HTTP port
+EXPOSE 8000
+
+# Run Uvicorn binding to Render's dynamic PORT environment variable
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

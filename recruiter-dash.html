@@ -35,17 +35,43 @@
         <h2>Candidate shortlist</h2>
         <p>Profiles are loaded from the candidate API</p>
       </div>
-      <div class="blind-control">
-        <label class="toggle-control" for="blind-evaluation">
-          <input id="blind-evaluation" type="checkbox" role="switch" aria-describedby="blind-evaluation-status">
-          <span class="toggle-track" aria-hidden="true"><span></span></span>
-          <span>Blind Evaluation Mode</span>
+      <div class="candidate-filter-controls">
+        <label class="assessment-filter-control" for="assessment-domain-filter">
+          <span>Filter by verified subject</span>
+          <select id="assessment-domain-filter">
+            <option value="all">All subjects</option>
+          </select>
         </label>
-        <p class="blind-status" id="blind-evaluation-status" role="status" aria-live="polite"></p>
+        <div class="blind-control">
+          <label class="toggle-control" for="blind-evaluation">
+            <input id="blind-evaluation" type="checkbox" role="switch" aria-describedby="blind-evaluation-status">
+            <span class="toggle-track" aria-hidden="true"><span></span></span>
+            <span>Blind Evaluation Mode</span>
+          </label>
+          <p class="blind-status" id="blind-evaluation-status" role="status" aria-live="polite"></p>
+        </div>
       </div>
     </section>
 
     <section class="candidate-grid" id="candidate-grid" aria-label="Candidate profiles"></section>
+
+    <section class="sent-invitations-section" aria-labelledby="sent-invitations-title">
+      <div class="sent-invitations-header">
+        <div>
+          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Your outreach</p>
+          <h2 id="sent-invitations-title">Sent Invitations &amp; Talent Pipeline</h2>
+          <p>Track responses and view contact details for candidates who accepted your invitation.</p>
+        </div>
+        <div class="sent-invitation-filters" role="group" aria-label="Filter sent invitations">
+          <button class="sent-invitation-filter is-active" type="button" data-invitation-filter="all" aria-pressed="true">All</button>
+          <button class="sent-invitation-filter" type="button" data-invitation-filter="pending" aria-pressed="false">Pending</button>
+          <button class="sent-invitation-filter" type="button" data-invitation-filter="accepted" aria-pressed="false">Accepted</button>
+          <button class="sent-invitation-filter" type="button" data-invitation-filter="declined" aria-pressed="false">Declined</button>
+        </div>
+      </div>
+      <p class="sent-invitations-status" id="sent-invitations-status" role="status" aria-live="polite"></p>
+      <div class="sent-invitations-grid" id="sent-invitations-list" aria-busy="false"></div>
+    </section>
 
     <p class="demo-disclaimer">
       Blind mode requests a sanitized candidate response from the API. It is not a substitute for access controls

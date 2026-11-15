@@ -1,51 +1,102 @@
-let quizQuestions = [];
 const quizDurationMs = 10 * 60 * 1000;
-const attemptStorageKey = "loom.student.backendQuizAttempt";
-const backendBadgeName = "Verified Backend";
-const assessmentTestId = "backend-fundamentals";
-const assessmentTestName = "REST APIs and database structures";
+const attemptStorageKey = "loom.student.assessmentAttempt";
 
+const subjectGrid = document.querySelector("#subject-cards-grid");
+const subjectsMessage = document.querySelector("#subjects-message");
+const quizContainer = document.querySelector("#quiz-container");
 const quizForm = document.querySelector("#quiz-form");
 const questionList = document.querySelector("#question-list");
 const timerDisplay = document.querySelector("#quiz-timer");
 const questionCountDisplay = document.querySelector(".question-count");
 const assessmentMessage = document.querySelector("#assessment-message");
-const startButton = document.querySelector("#start-quiz");
 const submitButton = document.querySelector("#submit-quiz");
+const startDialog = document.querySelector("#start-assessment-dialog");
+const startDialogTitle = document.querySelector("#confirm-subject-title");
+const startDialogMessage = document.querySelector("#start-assessment-message");
+const confirmStartButton = document.querySelector("#confirm-start-assessment");
+const cancelStartButton = document.querySelector("#cancel-assessment");
+const resultDialog = document.querySelector("#quiz-result-dialog");
 const resultPanel = document.querySelector("#quiz-result");
+const chooseAnotherButton = document.querySelector("#choose-another-assessment");
 
+let subjects = [];
+let selectedSubject = null;
+let quizQuestions = [];
 let deadline = null;
 let timerInterval = null;
 let quizStarted = false;
 let quizSubmitted = false;
-let completedResult = null;
+let submissionInProgress = false;
+let pendingSubject = null;
 
-async function loadQuizQuestions() {
-  const questions = await window.loomApi.request(
-    `/assessments/questions?test_id=${encodeURIComponent(assessmentTestId)}`
-  );
-  if (
-    !Array.isArray(questions)
-    || questions.length === 0
-    || questions.some((question) => (
-      !question
-      || typeof question.question !== "string"
-      || !Array.isArray(question.options)
-      || question.options.length < 2
-      || question.options.some((option) => typeof option !== "string")
-      || !Number.isInteger(question.answer)
-      || question.answer < 0
-      || question.answer >= question.options.length
-    ))
-  ) {
-    throw new Error("The assessment API returned invalid questions.");
+function createElement(tagName, className, text) {
+  const element = document.createElement(tagName);
+  if (className) {
+    element.className = className;
   }
-  return questions;
+  if (text !== undefined) {
+    element.textContent = text;
+  }
+  return element;
+}
+
+function isValidQuestions(questions) {
+  return Array.isArray(questions)
+    && questions.length > 0
+    && questions.every((question) => (
+      question
+      && typeof question.question === "string"
+      && Array.isArray(question.options)
+      && question.options.length >= 2
+      && question.options.every((option) => typeof option === "string")
+      && !Object.prototype.hasOwnProperty.call(question, "answer")
+    ));
+}
+
+function renderSubjectCards() {
+  const cards = document.createDocumentFragment();
+  subjects.forEach((subject) => {
+    const card = createElement("article", "assessment-subject-card");
+    const top = createElement("div", "assessment-subject-top");
+    const icon = createElement("span", "assessment-subject-icon", subject.icon);
+    icon.setAttribute("aria-hidden", "true");
+    const tags = createElement("div", "assessment-subject-tags");
+    tags.append(
+      createElement("span", "assessment-domain-badge", "Assessment domain"),
+      createElement("span", `assessment-difficulty is-${subject.difficulty.toLowerCase()}`, subject.difficulty)
+    );
+    top.append(icon, tags);
+
+    const title = createElement("h3", "assessment-subject-title", subject.title);
+    const description = createElement("p", "assessment-subject-description", subject.description);
+    const details = createElement("div", "assessment-subject-details");
+    details.append(
+      createElement("span", "", `${subject.question_count} questions`),
+      createElement("span", "", `${subject.duration_minutes} minutes`)
+    );
+    const startButton = createElement("button", "button button-primary assessment-subject-start", "Start Assessment");
+    startButton.type = "button";
+    startButton.addEventListener("click", () => openStartDialog(subject));
+    card.append(top, title, description, details, startButton);
+    cards.append(card);
+  });
+  subjectGrid.replaceChildren(cards);
+  subjectGrid.setAttribute("aria-busy", "false");
+}
+
+function openStartDialog(subject) {
+  pendingSubject = subject;
+  startDialogTitle.textContent = subject.title;
+  const signedIn = Boolean(sessionStorage.getItem("loom_access_token"));
+  startDialogMessage.textContent = signedIn
+    ? ""
+    : "Sign in from your student dashboard before starting an assessment.";
+  confirmStartButton.disabled = !signedIn;
+  startDialog.showModal();
 }
 
 function renderQuestions() {
   const fragment = document.createDocumentFragment();
-
   quizQuestions.forEach((question, questionIndex) => {
     const fieldset = document.createElement("fieldset");
     fieldset.className = "quiz-question";
@@ -70,7 +121,6 @@ function renderQuestions() {
 
     fragment.append(fieldset);
   });
-
   questionList.replaceChildren(fragment);
 }
 
@@ -88,18 +138,220 @@ function collectAnswers() {
   });
 }
 
-function persistAttempt() {
+function persistAttempt(status = "active", result = null) {
   try {
     sessionStorage.setItem(attemptStorageKey, JSON.stringify({
-      status: quizSubmitted ? "submitted" : "active",
-      deadline,
+      status,
+      candidateId: window.loomApi.candidateId,
+      subjectCode: selectedSubject.id,
       answers: collectAnswers(),
-      result: completedResult
+      result
     }));
     return true;
   } catch {
     return false;
   }
+}
+
+function restoreAnswers(answers) {
+  if (
+    !Array.isArray(answers)
+    || answers.length !== quizQuestions.length
+    || answers.some((answer, index) => (
+      answer !== null
+      && (!Number.isInteger(answer) || answer < 0 || answer >= quizQuestions[index].options.length)
+    ))
+  ) {
+    return false;
+  }
+
+  answers.forEach((answer, index) => {
+    if (answer !== null) {
+      const input = quizForm.querySelector(`input[name="question-${index}"][value="${answer}"]`);
+      input.checked = true;
+    }
+  });
+  return true;
+}
+
+function setQuestionsDisabled(disabled) {
+  questionList.querySelectorAll("fieldset").forEach((fieldset) => {
+    fieldset.disabled = disabled;
+  });
+}
+
+function showQuiz(subject) {
+  selectedSubject = subject;
+  subjectGrid.hidden = true;
+  quizContainer.hidden = false;
+  questionCountDisplay.textContent = `${quizQuestions.length} questions · ${subject.duration_minutes} minutes`;
+}
+
+async function loadQuestions(subjectCode) {
+  const questions = await window.loomApi.request(
+    `/assessments/questions?subject_code=${encodeURIComponent(subjectCode)}`
+  );
+  if (!isValidQuestions(questions)) {
+    throw new Error("The assessment API returned invalid or exposed answer data.");
+  }
+  return questions;
+}
+
+async function beginAssessment(subject, savedAttempt = null) {
+  confirmStartButton.disabled = true;
+  startDialogMessage.textContent = "Starting your timed assessment...";
+  try {
+    const session = await window.loomApi.request("/assessments/start", {
+      method: "POST",
+      body: { subject_code: subject.id }
+    });
+    if (!isValidQuestions(session.questions)) {
+      throw new Error("The assessment API returned invalid or exposed answer data.");
+    }
+
+    selectedSubject = subject;
+    quizQuestions = session.questions;
+    renderQuestions();
+    showQuiz(subject);
+    if (savedAttempt && !restoreAnswers(savedAttempt.answers)) {
+      throw new Error("Saved assessment answers are invalid.");
+    }
+    if (!session.active) {
+      deadline = Date.now();
+      timerDisplay.textContent = "00:00";
+      setQuestionsDisabled(true);
+      submitButton.disabled = false;
+      startDialog.close();
+      quizStarted = true;
+      void finishQuiz(true);
+      return;
+    }
+
+    quizStarted = true;
+    quizSubmitted = false;
+    deadline = Date.now() + Math.min(session.remaining_seconds * 1000, quizDurationMs);
+    setQuestionsDisabled(false);
+    submitButton.disabled = false;
+    submitButton.textContent = "Submit assessment ↗";
+    timerDisplay.textContent = formatTime(deadline - Date.now());
+    timerDisplay.classList.remove("is-urgent");
+    const progressMessage = savedAttempt
+      ? "Restored your active assessment."
+      : session.resumed
+        ? "Resuming your existing assessment; its timer was not reset."
+        : "Assessment in progress.";
+    assessmentMessage.textContent = persistAttempt()
+      ? `${progressMessage} Your server timer continues across page refreshes.`
+      : `${progressMessage} The server timer continues, but answers could not be saved in this tab.`;
+    startDialog.close();
+    timerInterval = window.setInterval(updateTimer, 200);
+  } catch (error) {
+    startDialogMessage.textContent = error instanceof Error
+      ? `Could not start the assessment: ${error.message}`
+      : "Could not start the assessment.";
+    confirmStartButton.disabled = false;
+  }
+}
+
+function updateTimer() {
+  if (!quizStarted || quizSubmitted || submissionInProgress) {
+    return;
+  }
+  const remaining = Math.max(0, deadline - Date.now());
+  timerDisplay.textContent = formatTime(remaining);
+  timerDisplay.classList.toggle("is-urgent", remaining <= 60_000);
+  if (remaining === 0) {
+    void finishQuiz(true);
+  }
+}
+
+function renderResult(result) {
+  const passed = result.verified_status === true;
+  resultPanel.className = passed ? "assessment-result is-pass" : "assessment-result is-fail";
+  const heading = createElement(
+    "h2",
+    "",
+    passed ? "You passed!" : "Keep building your skills."
+  );
+  heading.id = "quiz-result-heading";
+  const scoreText = createElement("p", "result-score", `Your score: ${result.score}%`);
+  const detail = createElement(
+    "p",
+    "",
+    result.timed_out
+      ? `Time ran out. You answered ${result.correct_answers} of ${result.total_questions} questions correctly.`
+      : `You answered ${result.correct_answers} of ${result.total_questions} questions correctly.`
+  );
+  resultPanel.replaceChildren(heading, scoreText, detail);
+
+  if (passed) {
+    resultPanel.append(
+      createElement(
+        "p",
+        "earned-badge",
+        `${result.subject_title}: ${result.score}% (Verified) — added to your Loom profile.`
+      )
+    );
+  } else {
+    resultPanel.append(
+      createElement("p", "", "You need 80% to earn a verified subject badge. Review the domain and try again.")
+    );
+  }
+  resultDialog.showModal();
+}
+
+async function finishQuiz(timedOut) {
+  if (quizSubmitted || submissionInProgress || !selectedSubject) {
+    return;
+  }
+  submissionInProgress = true;
+  window.clearInterval(timerInterval);
+  timerDisplay.textContent = timedOut ? "00:00" : formatTime(Math.max(0, deadline - Date.now()));
+  timerDisplay.classList.toggle("is-urgent", timedOut);
+  setQuestionsDisabled(true);
+  submitButton.disabled = true;
+  submitButton.textContent = "Submitting...";
+  assessmentMessage.textContent = "Submitting your answers for secure grading...";
+
+  try {
+    const result = await window.loomApi.request("/assessments/submit", {
+      method: "POST",
+      body: {
+        subject_code: selectedSubject.id,
+        answers: collectAnswers()
+      }
+    });
+    quizSubmitted = true;
+    quizStarted = false;
+    completedResult = result;
+    persistAttempt("submitted", result);
+    assessmentMessage.textContent = "Assessment submitted.";
+    submitButton.textContent = "Assessment submitted";
+    renderResult(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not submit the assessment.";
+    assessmentMessage.textContent = `Could not submit your answers: ${message}`;
+    submitButton.textContent = "Retry submission";
+    submitButton.disabled = false;
+    if (!timedOut && Date.now() < deadline) {
+      setQuestionsDisabled(false);
+      timerInterval = window.setInterval(updateTimer, 200);
+    }
+  } finally {
+    submissionInProgress = false;
+  }
+}
+
+function isValidSavedResult(result) {
+  return result
+    && Number.isInteger(result.score)
+    && result.score >= 0
+    && result.score <= 100
+    && Number.isInteger(result.correct_answers)
+    && Number.isInteger(result.total_questions)
+    && typeof result.verified_status === "boolean"
+    && typeof result.timed_out === "boolean"
+    && typeof result.subject_title === "string";
 }
 
 async function restoreAttempt() {
@@ -109,287 +361,77 @@ async function restoreAttempt() {
     if (!serializedAttempt) {
       return;
     }
-
     savedAttempt = JSON.parse(serializedAttempt);
   } catch {
-    assessmentMessage.textContent = "Could not restore your saved assessment. Starting a new attempt will replace it.";
+    subjectsMessage.textContent = "Could not restore the saved assessment. Start a new attempt to replace it.";
     return;
   }
 
   if (
-    !savedAttempt ||
-    !Array.isArray(savedAttempt.answers) ||
-    savedAttempt.answers.length !== quizQuestions.length ||
-    savedAttempt.answers.some((answer, index) => (
-      answer !== null && (!Number.isInteger(answer) || answer < 0 || answer >= quizQuestions[index].options.length)
-    ))
+    !savedAttempt
+    || savedAttempt.candidateId !== window.loomApi.candidateId
+    || typeof savedAttempt.subjectCode !== "string"
   ) {
-    assessmentMessage.textContent = "Saved assessment data is invalid. Start a new attempt to replace it.";
+    sessionStorage.removeItem(attemptStorageKey);
+    return;
+  }
+  const subject = subjects.find((item) => item.id === savedAttempt.subjectCode);
+  if (!subject) {
+    sessionStorage.removeItem(attemptStorageKey);
     return;
   }
 
-  savedAttempt.answers.forEach((answer, index) => {
-    if (answer !== null) {
-      const input = quizForm.querySelector(`input[name="question-${index}"][value="${answer}"]`);
-      input.checked = true;
-    }
-  });
-
   if (savedAttempt.status === "submitted") {
-    const result = savedAttempt.result;
-    if (
-      !result ||
-      !Number.isInteger(result.score) ||
-      result.score < 0 ||
-      result.score > 100 ||
-      typeof result.passed !== "boolean" ||
-      typeof result.badgeSaved !== "boolean" ||
-      typeof result.timedOut !== "boolean"
-    ) {
-      assessmentMessage.textContent = "Saved assessment result is invalid. Start a new attempt to replace it.";
+    if (!isValidSavedResult(savedAttempt.result)) {
+      subjectsMessage.textContent = "The saved assessment result is invalid. Start a new attempt to replace it.";
+      return;
+    }
+    selectedSubject = subject;
+    subjectGrid.hidden = true;
+    renderResult(savedAttempt.result);
+    return;
+  }
+  if (savedAttempt.status !== "active" || !Array.isArray(savedAttempt.answers)) {
+    subjectsMessage.textContent = "Saved assessment data is invalid. Start a new attempt to replace it.";
+    return;
+  }
+
+  try {
+    const state = await window.loomApi.request(
+      `/assessments/status?subject_code=${encodeURIComponent(subject.id)}`
+    );
+    if (state.active) {
+      await beginAssessment(subject, savedAttempt);
       return;
     }
 
-    quizSubmitted = true;
-    startButton.hidden = true;
-    submitButton.disabled = true;
-    questionList.querySelectorAll("fieldset").forEach((fieldset) => {
-      fieldset.disabled = true;
-    });
-    timerDisplay.textContent = result.timedOut ? "00:00" : "Submitted";
-    completedResult = result;
-    renderResult(result.score, result.passed, result.badgeSaved, result.timedOut);
-    assessmentMessage.textContent = "This assessment has already been submitted in this tab.";
-    return;
-  }
-
-  if (savedAttempt.status !== "active" || !Number.isFinite(savedAttempt.deadline)) {
-    assessmentMessage.textContent = "Saved assessment data is invalid. Start a new attempt to replace it.";
-    return;
-  }
-
-  quizStarted = true;
-  startButton.hidden = true;
-  submitButton.disabled = false;
-  questionList.querySelectorAll("fieldset").forEach((fieldset) => {
-    fieldset.disabled = false;
-  });
-  let state;
-  try {
-    state = await window.loomApi.request(
-      `/assessments/status?candidate_id=${window.loomApi.candidateId}&test_id=${assessmentTestId}`
-    );
-  } catch (error) {
-    quizStarted = false;
-    startButton.hidden = false;
-    submitButton.disabled = true;
-    questionList.querySelectorAll("fieldset").forEach((fieldset) => {
-      fieldset.disabled = true;
-    });
-    assessmentMessage.textContent = error instanceof Error
-      ? `Could not restore the server timer: ${error.message}`
-      : "Could not restore the server timer.";
-    return;
-  }
-
-  if (!state.active) {
+    selectedSubject = subject;
+    quizQuestions = await loadQuestions(subject.id);
+    renderQuestions();
+    showQuiz(subject);
+    if (!restoreAnswers(savedAttempt.answers)) {
+      throw new Error("Saved assessment answers are invalid.");
+    }
+    quizStarted = true;
     deadline = Date.now();
+    timerDisplay.textContent = "00:00";
+    setQuestionsDisabled(true);
+    submitButton.disabled = false;
     void finishQuiz(true);
-    return;
-  }
-
-  deadline = Date.now() + state.remaining_seconds * 1000;
-  assessmentMessage.textContent = "Your timed assessment was restored from the server.";
-  updateTimer();
-  if (!quizSubmitted) {
-    timerInterval = window.setInterval(updateTimer, 200);
-  }
-}
-
-function updateTimer() {
-  if (!quizStarted || quizSubmitted) {
-    return;
-  }
-
-  const remaining = Math.max(0, deadline - Date.now());
-  timerDisplay.textContent = formatTime(remaining);
-  timerDisplay.classList.toggle("is-urgent", remaining <= 60_000);
-
-  if (remaining === 0) {
-    void finishQuiz(true);
-  }
-}
-
-async function startQuiz() {
-  if (quizStarted || quizSubmitted) {
-    return;
-  }
-
-  startButton.disabled = true;
-  assessmentMessage.textContent = "Starting your timed assessment...";
-  let state;
-  try {
-    state = await window.loomApi.request("/assessments/start", {
-      method: "POST",
-      body: {
-        candidate_id: window.loomApi.candidateId,
-        test_id: assessmentTestId
-      }
-    });
   } catch (error) {
-    startButton.disabled = false;
-    assessmentMessage.textContent = error instanceof Error
-      ? `Could not start the assessment: ${error.message}`
-      : "Could not start the assessment.";
-    return;
+    subjectsMessage.textContent = error instanceof Error
+      ? `Could not restore your assessment: ${error.message}`
+      : "Could not restore your assessment.";
   }
-  if (!state.active) {
-    startButton.disabled = false;
-    assessmentMessage.textContent = "This assessment session has expired. Please try again.";
-    return;
-  }
-
-  quizStarted = true;
-  deadline = Date.now() + Math.min(state.remaining_seconds * 1000, quizDurationMs);
-  questionList.querySelectorAll("fieldset").forEach((fieldset) => {
-    fieldset.disabled = false;
-  });
-  startButton.hidden = true;
-  startButton.disabled = false;
-  submitButton.disabled = false;
-  assessmentMessage.textContent = persistAttempt()
-    ? "Assessment in progress. The server timer continues across page refreshes."
-    : "Assessment in progress. Your server timer continues, but answers could not be saved in this tab.";
-  updateTimer();
-  timerInterval = window.setInterval(updateTimer, 200);
 }
-
-function renderResult(score, passed, badgeSaved, timedOut) {
-  resultPanel.hidden = false;
-  resultPanel.className = passed ? "assessment-result is-pass" : "assessment-result is-fail";
-
-  const heading = document.createElement("h2");
-  heading.textContent = passed ? "You passed!" : "Keep building your backend skills.";
-  const scoreText = document.createElement("p");
-  scoreText.className = "result-score";
-  scoreText.textContent = `Your score: ${score}%`;
-  const detail = document.createElement("p");
-  detail.textContent = timedOut
-    ? "Time ran out, so your assessment was submitted automatically."
-    : "Your assessment has been submitted.";
-
-  resultPanel.replaceChildren(heading, scoreText, detail);
-
-  if (passed && badgeSaved) {
-    const badge = document.createElement("p");
-    badge.className = "earned-badge";
-    badge.textContent = `✓  ${backendBadgeName} badge added to your Loom profile`;
-    resultPanel.append(badge);
-  } else if (passed) {
-    const storageError = document.createElement("p");
-    storageError.className = "storage-warning";
-    storageError.textContent = "You passed, but the result could not be saved to your candidate profile.";
-    resultPanel.append(storageError);
-  } else {
-    const nextStep = document.createElement("p");
-    nextStep.textContent = "Review REST methods, HTTP status codes, primary keys, and foreign keys, then try again.";
-    resultPanel.append(nextStep);
-  }
-
-  const dashboardLink = document.createElement("a");
-  dashboardLink.className = "result-link";
-  dashboardLink.href = "student-dash.html";
-  dashboardLink.textContent = "Return to student dashboard";
-  resultPanel.append(dashboardLink);
-}
-
-async function finishQuiz(timedOut) {
-  if (quizSubmitted) {
-    return;
-  }
-
-  quizSubmitted = true;
-  window.clearInterval(timerInterval);
-  timerDisplay.textContent = timedOut ? "00:00" : formatTime(Math.max(0, deadline - Date.now()));
-  timerDisplay.classList.toggle("is-urgent", timedOut);
-  questionList.querySelectorAll("fieldset").forEach((fieldset) => {
-    fieldset.disabled = true;
-  });
-  submitButton.disabled = true;
-  startButton.hidden = true;
-
-  const correctAnswers = quizQuestions.reduce((score, question, index) => {
-    const selected = quizForm.querySelector(`input[name="question-${index}"]:checked`);
-    return score + (selected && Number(selected.value) === question.answer ? 1 : 0);
-  }, 0);
-  const score = Math.round((correctAnswers / quizQuestions.length) * 100);
-  const passed = score >= 80;
-  let resultSaved = false;
-  let resultSaveError = null;
-  try {
-    await window.loomApi.request("/assessment-scores", {
-      method: "POST",
-      body: {
-        candidate_id: window.loomApi.candidateId,
-        test_name: assessmentTestName,
-        score,
-        verified_status: passed
-      }
-    });
-    resultSaved = true;
-  } catch (error) {
-    resultSaveError = error instanceof Error ? error.message : "Unknown API error.";
-  }
-
-  const badgeSaved = passed && resultSaved;
-  completedResult = { score, passed, badgeSaved, timedOut };
-  const attemptSaved = persistAttempt();
-  if (resultSaveError) {
-    assessmentMessage.textContent = `Assessment submitted, but the result could not be saved: ${resultSaveError}`;
-  } else if (!attemptSaved) {
-    assessmentMessage.textContent = "Assessment submitted, but this browser could not preserve the result in this tab.";
-  } else if (timedOut) {
-    assessmentMessage.textContent = "Time expired. Your answers were submitted automatically.";
-  } else {
-    assessmentMessage.textContent = "Assessment submitted.";
-  }
-
-  renderResult(score, passed, badgeSaved, timedOut);
-}
-
-startButton.addEventListener("click", () => {
-  void startQuiz();
-});
-
-quizForm.addEventListener("change", () => {
-  if (quizStarted && !quizSubmitted && !persistAttempt()) {
-    assessmentMessage.textContent = "Your answer is selected, but this browser could not save the timer state.";
-  }
-});
-
-quizForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  if (!quizStarted || quizSubmitted) {
-    return;
-  }
-
-  if (Date.now() >= deadline) {
-    void finishQuiz(true);
-  } else {
-    void finishQuiz(false);
-  }
-});
-
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && quizStarted && !quizSubmitted) {
-    void syncServerTimer();
-  }
-});
 
 async function syncServerTimer() {
+  if (!selectedSubject || !quizStarted || quizSubmitted) {
+    return;
+  }
   try {
     const state = await window.loomApi.request(
-      `/assessments/status?candidate_id=${window.loomApi.candidateId}&test_id=${assessmentTestId}`
+      `/assessments/status?subject_code=${encodeURIComponent(selectedSubject.id)}`
     );
     if (!state.active) {
       deadline = Date.now();
@@ -405,23 +447,86 @@ async function syncServerTimer() {
   }
 }
 
-async function initializeQuiz() {
-  startButton.disabled = true;
-  assessmentMessage.textContent = "Loading assessment questions...";
+async function loadSubjects() {
+  subjectGrid.setAttribute("aria-busy", "true");
   try {
-    quizQuestions = await loadQuizQuestions();
-    renderQuestions();
-    questionCountDisplay.textContent = `${quizQuestions.length} question${quizQuestions.length === 1 ? "" : "s"} · 10 minutes`;
-    startButton.disabled = false;
-    assessmentMessage.textContent = "Your timer starts when you begin. The assessment submits automatically when time runs out.";
+    const result = await window.loomApi.request("/assessments/subjects");
+    if (
+      !Array.isArray(result)
+      || result.length < 4
+      || result.some((subject) => (
+        !subject
+        || typeof subject.id !== "string"
+        || typeof subject.title !== "string"
+        || typeof subject.icon !== "string"
+        || typeof subject.description !== "string"
+        || !Number.isInteger(subject.duration_minutes)
+        || !Number.isInteger(subject.question_count)
+        || typeof subject.difficulty !== "string"
+      ))
+    ) {
+      throw new Error("The assessment API returned invalid domains.");
+    }
+    subjects = result;
+    renderSubjectCards();
+    subjectsMessage.textContent = sessionStorage.getItem("loom_access_token")
+      ? "Choose a domain to begin. Your timer starts when the assessment does."
+      : "Sign in from your student dashboard to start an assessment and save verified badges.";
     await restoreAttempt();
   } catch (error) {
-    assessmentMessage.textContent = error instanceof Error
-      ? `Could not load assessment questions: ${error.message}`
-      : "Could not load assessment questions.";
-    questionList.replaceChildren();
-    startButton.disabled = true;
+    subjectGrid.setAttribute("aria-busy", "false");
+    subjectsMessage.textContent = error instanceof Error
+      ? `Could not load assessment domains: ${error.message}`
+      : "Could not load assessment domains.";
   }
 }
 
-void initializeQuiz();
+confirmStartButton.addEventListener("click", () => {
+  if (pendingSubject) {
+    void beginAssessment(pendingSubject);
+  }
+});
+
+cancelStartButton.addEventListener("click", () => {
+  pendingSubject = null;
+  startDialog.close();
+});
+
+quizForm.addEventListener("change", () => {
+  if (quizStarted && !quizSubmitted && !persistAttempt()) {
+    assessmentMessage.textContent = "Your answer is selected, but this browser could not save the timer state.";
+  }
+});
+
+quizForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!quizStarted || quizSubmitted || submissionInProgress) {
+    return;
+  }
+  void finishQuiz(Date.now() >= deadline);
+});
+
+chooseAnotherButton.addEventListener("click", () => {
+  resultDialog.close();
+  quizContainer.hidden = true;
+  subjectGrid.hidden = false;
+  selectedSubject = null;
+  quizQuestions = [];
+  quizStarted = false;
+  quizSubmitted = false;
+  deadline = null;
+  timerDisplay.textContent = "10:00";
+  questionList.replaceChildren();
+  submitButton.disabled = true;
+  submitButton.textContent = "Submit assessment ↗";
+  sessionStorage.removeItem(attemptStorageKey);
+  subjectsMessage.textContent = "Choose another assessment domain.";
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && quizStarted && !quizSubmitted) {
+    void syncServerTimer();
+  }
+});
+
+void loadSubjects();

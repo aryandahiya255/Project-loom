@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta, timezone
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from google.genai.errors import APIError
+import httpx
 import jwt
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select, text
@@ -74,6 +76,22 @@ class AuthenticationEndpointTests(unittest.TestCase):
                 "designation": "Talent Partner",
             },
         )
+
+    def mock_genai_client(self, response_text=None, error=None):
+        async_client = MagicMock()
+        chat = MagicMock()
+        if error is not None:
+            chat.send_message = AsyncMock(side_effect=error)
+        else:
+            chat.send_message = AsyncMock(return_value=MagicMock(text=response_text))
+        async_client.chats.create.return_value = chat
+
+        client_context = MagicMock()
+        client_context.__aenter__ = AsyncMock(return_value=async_client)
+        client_context.__aexit__ = AsyncMock(return_value=False)
+        client = MagicMock()
+        client.aio = client_context
+        return client, async_client, chat
 
     def test_register_hashes_password_and_returns_profile(self):
         response = self.register_user()
@@ -449,6 +467,208 @@ class AuthenticationEndpointTests(unittest.TestCase):
             ).status_code,
             409,
         )
+
+    def test_recruiter_sent_invitations_reveal_contacts_only_after_acceptance(self):
+        self.assertEqual(
+            self.register_user(phone_number="+1 555 0100").status_code,
+            201,
+        )
+        recruiter_registration = self.register_recruiter()
+        recruiter_token = recruiter_registration.json()["access_token"]
+        other_recruiter = self.register_recruiter("another@example.com")
+        base_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        with self.session_factory() as db:
+            candidate = db.scalar(select(main.Candidate))
+            recruiter = db.scalar(
+                select(main.Recruiter).where(
+                    main.Recruiter.work_email == "recruiter@example.com"
+                )
+            )
+            self.assertIsNotNone(candidate)
+            self.assertIsNotNone(recruiter)
+            db.add_all(
+                [
+                    main.InterviewInvitation(
+                        recruiter_id=recruiter.id,
+                        candidate_id=candidate.id,
+                        job_title="Pending role",
+                        message="Awaiting response.",
+                        status=main.InterviewInvitationStatus.PENDING,
+                        created_at=base_time,
+                    ),
+                    main.InterviewInvitation(
+                        recruiter_id=recruiter.id,
+                        candidate_id=candidate.id,
+                        job_title="Declined role",
+                        message="Declined opportunity.",
+                        status=main.InterviewInvitationStatus.DECLINED,
+                        created_at=base_time + timedelta(minutes=1),
+                    ),
+                    main.InterviewInvitation(
+                        recruiter_id=recruiter.id,
+                        candidate_id=candidate.id,
+                        job_title="Accepted role",
+                        message="Accepted opportunity.",
+                        status=main.InterviewInvitationStatus.ACCEPTED,
+                        created_at=base_time + timedelta(minutes=2),
+                    ),
+                ]
+            )
+            db.commit()
+
+        endpoint = "/api/recruiter/invitations"
+        self.assertEqual(self.client.get(endpoint).status_code, 401)
+        headers = {"Authorization": f"Bearer {recruiter_token}"}
+        response = self.client.get(endpoint, headers=headers)
+        self.assertEqual(response.status_code, 200)
+        invitations = response.json()
+        self.assertEqual(
+            [invitation["job_title"] for invitation in invitations],
+            ["Accepted role", "Declined role", "Pending role"],
+        )
+        self.assertEqual(
+            {
+                key: invitations[0][key]
+                for key in ("candidate_name", "candidate_email", "candidate_phone", "github_url")
+            },
+            {
+                "candidate_name": "Taylor Student",
+                "candidate_email": "student@example.edu",
+                "candidate_phone": "+1 555 0100",
+                "github_url": "https://github.com/taylor",
+            },
+        )
+        for invitation in invitations[1:]:
+            self.assertTrue(
+                {
+                    "candidate_name",
+                    "candidate_email",
+                    "candidate_phone",
+                    "github_url",
+                }.isdisjoint(invitation)
+            )
+
+        other_headers = {
+            "Authorization": f"Bearer {other_recruiter.json()['access_token']}"
+        }
+        self.assertEqual(self.client.get(endpoint, headers=other_headers).json(), [])
+
+    def test_career_advisor_requires_candidate_auth_and_passes_context_and_history(self):
+        self.assertEqual(self.register_user().status_code, 201)
+        candidate_login = self.client.post(
+            "/api/auth/login",
+            json={
+                "email": "student@example.edu",
+                "password": "correct-horse-battery",
+            },
+        )
+        candidate_headers = {
+            "Authorization": f"Bearer {candidate_login.json()['access_token']}"
+        }
+        endpoint = "/api/chat/career-advisor"
+        request_payload = {
+            "message": "What should I build next?",
+            "history": [
+                {"role": "user", "content": "I want to work in software."},
+                {"role": "model", "content": "What role are you targeting?"},
+            ],
+            "context": {
+                "ats_score": 82,
+                "missing_skills": ["Docker", "CI/CD"],
+                "target_role": "Full-Stack Developer",
+            },
+        }
+        self.assertEqual(
+            self.client.post(endpoint, json=request_payload).status_code,
+            401,
+        )
+        recruiter = self.register_recruiter()
+        recruiter_headers = {
+            "Authorization": f"Bearer {recruiter.json()['access_token']}"
+        }
+        self.assertEqual(
+            self.client.post(
+                endpoint,
+                headers=recruiter_headers,
+                json=request_payload,
+            ).status_code,
+            403,
+        )
+
+        mock_client, async_client, chat = self.mock_genai_client("Start with a small API project.")
+        with (
+            patch.dict(
+                os.environ,
+                {"GEMINI_API_KEY": "test-gemini-key", "GEMINI_MODEL": "gemini-test"},
+            ),
+            patch.object(main.genai, "Client", return_value=mock_client),
+        ):
+            response = self.client.post(
+                endpoint,
+                headers=candidate_headers,
+                json=request_payload,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"reply": "Start with a small API project."})
+        chat_configuration = async_client.chats.create.call_args.kwargs
+        self.assertEqual(chat_configuration["model"], "gemini-test")
+        self.assertEqual(
+            [
+                (message.role, message.parts[0].text)
+                for message in chat_configuration["history"]
+            ],
+            [
+                ("user", "I want to work in software."),
+                ("model", "What role are you targeting?"),
+            ],
+        )
+        self.assertIn("82", chat_configuration["config"].system_instruction)
+        self.assertIn("Docker", chat_configuration["config"].system_instruction)
+        self.assertIn(
+            "Full-Stack Developer",
+            chat_configuration["config"].system_instruction,
+        )
+        chat.send_message.assert_awaited_once_with("What should I build next?")
+
+    def test_career_advisor_maps_provider_limits_and_connection_errors(self):
+        self.assertEqual(self.register_user().status_code, 201)
+        candidate_login = self.client.post(
+            "/api/auth/login",
+            json={
+                "email": "student@example.edu",
+                "password": "correct-horse-battery",
+            },
+        )
+        headers = {
+            "Authorization": f"Bearer {candidate_login.json()['access_token']}"
+        }
+        endpoint = "/api/chat/career-advisor"
+        payload = {"message": "Help me plan my next project.", "history": []}
+        cases = [
+            (
+                APIError(
+                    429,
+                    {"error": {"status": "RESOURCE_EXHAUSTED", "message": "Quota exceeded"}},
+                ),
+                429,
+            ),
+            (httpx.ConnectError("Provider unavailable"), 502),
+        ]
+        for provider_error, expected_status in cases:
+            mock_client, _, _ = self.mock_genai_client(error=provider_error)
+            with (
+                patch.dict(os.environ, {"GEMINI_API_KEY": "test-gemini-key"}),
+                patch.object(main.genai, "Client", return_value=mock_client),
+            ):
+                response = self.client.post(
+                    endpoint,
+                    headers=headers,
+                    json=payload,
+                )
+            self.assertEqual(response.status_code, expected_status)
+            self.assertTrue(response.json()["detail"])
 
 
 if __name__ == "__main__":

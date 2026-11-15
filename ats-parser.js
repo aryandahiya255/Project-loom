@@ -216,6 +216,14 @@ async function renderAnalysisResult(result) {
   }
   renderSkillGapChart(result, chartContainer, skillCatalog);
   analysisJson.textContent = JSON.stringify(result, null, 2);
+  if (sessionStorage.getItem("loom_access_token")) {
+    sessionStorage.setItem(
+      "loom_ats_candidate_id",
+      String(window.loomApi.candidateId)
+    );
+  } else {
+    sessionStorage.removeItem("loom_ats_candidate_id");
+  }
 }
 
 analysisForm.addEventListener("submit", async (event) => {
