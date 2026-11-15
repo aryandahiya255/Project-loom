@@ -232,8 +232,6 @@ resumeUpload.addEventListener("drop", (event) => {
   void handleResumeFile(event.dataTransfer.files[0]);
 });
 
-void loadStudentProfile();
-
 const authDialog = document.querySelector("#auth-dialog");
 const authOpenButton = document.querySelector("#auth-open");
 const authCloseButton = document.querySelector("#auth-close");
@@ -252,7 +250,6 @@ const profileHeader = document.querySelector(".profile-header");
 const profileStatus = document.querySelector("#profile-status");
 const profileStatusIcon = profileStatus.querySelector("span");
 const signOutButton = document.querySelector("#auth-sign-out");
-const accounts = new Map();
 let authReturnFocus = null;
 
 function showAuthMessage(element, message, isError = false) {
@@ -278,6 +275,7 @@ function activateAuthTab(mode, moveFocus = false) {
 }
 
 function renderActiveAccount(account) {
+  window.loomApi.setCandidateId(account.id);
   profileHeader.classList.add("is-authenticated");
   profileName.textContent = account.name;
   profileEmail.textContent = account.email;
@@ -298,6 +296,7 @@ function renderActiveAccount(account) {
 }
 
 function resetActiveAccount() {
+  window.loomApi.setCandidateId(Number(document.body.dataset.candidateId || "1"));
   profileHeader.classList.remove("is-authenticated");
   profileName.textContent = "Your student profile";
   profileEmail.textContent = "";
@@ -308,6 +307,20 @@ function resetActiveAccount() {
   profileStatus.lastChild.textContent = " Student portal";
   authOpenButton.hidden = false;
   signOutButton.hidden = true;
+}
+
+async function authenticateUser(email, password) {
+  const token = await window.loomApi.request("/auth/login", {
+    method: "POST",
+    body: { email, password }
+  });
+  window.loomApi.setAccessToken(token.access_token);
+  try {
+    return await window.loomApi.request("/auth/me");
+  } catch (error) {
+    window.loomApi.setAccessToken(null);
+    throw error;
+  }
 }
 
 function openAuthDialog(mode = "signup") {
@@ -351,7 +364,7 @@ authDialog.addEventListener("close", () => {
   }
 });
 
-signupForm.addEventListener("submit", (event) => {
+signupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   showAuthMessage(signupMessage, "");
   const values = new FormData(signupForm);
@@ -359,46 +372,90 @@ signupForm.addEventListener("submit", (event) => {
     name: String(values.get("name")).trim(),
     email: String(values.get("email")).trim().toLowerCase(),
     password: String(values.get("password")),
-    school: String(values.get("school")).trim(),
-    major: String(values.get("major")).trim(),
-    role: String(values.get("role")).trim(),
+    collegeName: String(values.get("school")).trim(),
+    targetRole: String(values.get("role")).trim(),
     github: String(values.get("github")).trim()
   };
-  if ([account.name, account.email, account.school, account.major, account.role, account.github].some((value) => !value)) {
+  if ([account.name, account.email, account.collegeName, account.targetRole, account.github].some((value) => !value)) {
     showAuthMessage(signupMessage, "Complete each profile field before continuing.", true);
     return;
   }
-  if (accounts.has(account.email)) {
-    showAuthMessage(signupMessage, "An account with this email already exists. Sign in instead.", true);
-    return;
-  }
 
-  accounts.set(account.email, account);
-  renderActiveAccount(account);
-  authDialog.close();
-  signupForm.reset();
+  const submitButton = signupForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  try {
+    await window.loomApi.request("/auth/register", {
+      method: "POST",
+      body: {
+        name: account.name,
+        email: account.email,
+        password: account.password,
+        college_name: account.collegeName,
+        target_role: account.targetRole,
+        github_url: `https://github.com/${account.github}`
+      }
+    });
+    const profile = await authenticateUser(account.email, account.password);
+    renderActiveAccount(profile);
+    authDialog.close();
+    signupForm.reset();
+    void loadStudentProfile();
+  } catch (error) {
+    showAuthMessage(
+      signupMessage,
+      error instanceof Error ? error.message : "Could not create your account.",
+      true
+    );
+  } finally {
+    submitButton.disabled = false;
+  }
 });
 
-signinForm.addEventListener("submit", (event) => {
+signinForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   showAuthMessage(signinMessage, "");
   const values = new FormData(signinForm);
   const email = String(values.get("email")).trim().toLowerCase();
-  const account = accounts.get(email);
-  if (!account || account.password !== String(values.get("password"))) {
+  const password = String(values.get("password"));
+  const submitButton = signinForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  try {
+    const profile = await authenticateUser(email, password);
+    renderActiveAccount(profile);
+    authDialog.close();
+    signinForm.reset();
+    void loadStudentProfile();
+  } catch (error) {
     showAuthMessage(
       signinMessage,
-      "We couldn't find a matching account in this page session. Sign up to create one.",
+      error instanceof Error ? error.message : "Could not sign in.",
       true
     );
-    return;
+  } finally {
+    submitButton.disabled = false;
   }
-
-  renderActiveAccount(account);
-  authDialog.close();
-  signinForm.reset();
 });
 
 signOutButton.addEventListener("click", () => {
+  window.loomApi.setAccessToken(null);
   resetActiveAccount();
+  void loadStudentProfile();
 });
+
+async function initializeStudentDashboard() {
+  if (sessionStorage.getItem("loom_access_token")) {
+    try {
+      const profile = await window.loomApi.request("/auth/me");
+      renderActiveAccount(profile);
+    } catch (error) {
+      showMessage(
+        profileBadgeMessage,
+        error instanceof Error ? `Could not restore your session: ${error.message}` : "Could not restore your session.",
+        true
+      );
+    }
+  }
+  await loadStudentProfile();
+}
+
+void initializeStudentDashboard();

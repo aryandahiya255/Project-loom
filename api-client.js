@@ -7,10 +7,18 @@ const API_BASE_URL = (
     ? "http://localhost:8000/api"
     : "https://loom-api-vgo6.onrender.com/api")
 ).replace(/\/+$/, "");
-const STUDENT_CANDIDATE_ID = Number(document.body.dataset.candidateId || "1");
+const ACCESS_TOKEN_KEY = "loom_access_token";
+const CANDIDATE_ID_KEY = "loom_candidate_id";
+let studentCandidateId = Number(
+  sessionStorage.getItem(CANDIDATE_ID_KEY) || document.body.dataset.candidateId || "1"
+);
 
 async function apiRequest(path, options = {}) {
   const headers = new Headers(options.headers || {});
+  const accessToken = sessionStorage.getItem(ACCESS_TOKEN_KEY);
+  if (accessToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  }
   const isFormData = options.body instanceof FormData;
   if (options.body !== undefined && !isFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -45,8 +53,28 @@ async function apiRequest(path, options = {}) {
   return responseData;
 }
 
+function setAccessToken(accessToken) {
+  if (accessToken) {
+    sessionStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+  } else {
+    sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+  }
+}
+
+function setCandidateId(candidateId) {
+  if (!Number.isSafeInteger(candidateId) || candidateId < 1) {
+    throw new Error("Candidate ID must be a positive integer.");
+  }
+  studentCandidateId = candidateId;
+  sessionStorage.setItem(CANDIDATE_ID_KEY, String(candidateId));
+}
+
 window.loomApi = Object.freeze({
   baseUrl: API_BASE_URL,
-  candidateId: STUDENT_CANDIDATE_ID,
-  request: apiRequest
+  get candidateId() {
+    return studentCandidateId;
+  },
+  request: apiRequest,
+  setAccessToken,
+  setCandidateId
 });

@@ -403,7 +403,10 @@ def _database_url() -> str | None:
 
 
 def _allowed_origins() -> list[str]:
-    origins = ["https://loomproject.netlify.app"]
+    origins = [
+        "https://loomproject.netlify.app",
+        "https://loom-project-web.onrender.com",
+    ]
     frontend_url = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
     if frontend_url:
         origins.append(frontend_url)
