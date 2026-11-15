@@ -263,7 +263,7 @@ MAX_RESUME_FILE_BYTES = 10 * 1024 * 1024
 
 
 class ResumeATSResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(strict=True)
 
     ats_score: float = Field(ge=0, le=100)
     found_skills: list[str]
@@ -1229,6 +1229,12 @@ async def _run_resume_ats(contents: str | list[str | Part]) -> ResumeATSResponse
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="The resume analysis provider returned non-JSON data.",
         ) from error
+
+    if isinstance(response_data, dict) and set(response_data) - set(ResumeATSResponse.model_fields):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="The resume analysis provider returned JSON that did not match the required schema.",
+        )
 
     try:
         return ResumeATSResponse.model_validate(response_data)
