@@ -5,7 +5,7 @@ const API_BASE_URL = (
   window.LOOM_API_BASE_URL ||
   (isLocalDevelopment
     ? "http://localhost:8000/api"
-    : "https://loom-api.onrender.com/api")
+    : "https://loom-api-vgo6.onrender.com/api")
 ).replace(/\/+$/, "");
 const STUDENT_CANDIDATE_ID = Number(document.body.dataset.candidateId || "1");
 
