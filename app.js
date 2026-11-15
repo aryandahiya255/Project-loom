@@ -159,11 +159,11 @@ async function handleResumeFile(file) {
   showMessage(resumeMessage, "");
   if (/\.pdf$|\.docx$/i.test(file.name)) {
     showMessage(resumeMessage, "Uploading resume for analysis...");
-    const analyzed = await window.analyzeResumeFile(file);
+    const analysis = await window.analyzeResumeFile(file);
     showMessage(
       resumeMessage,
-      analyzed ? "Resume analysis complete." : "Could not analyze the uploaded resume.",
-      !analyzed
+      analysis.ok ? "Resume analysis complete." : analysis.message,
+      !analysis.ok
     );
     return;
   }

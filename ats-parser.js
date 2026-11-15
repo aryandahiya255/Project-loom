@@ -240,11 +240,12 @@ window.analyzeResumeFile = async (file) => {
     const result = await requestResumeFileAnalysis(file);
     await renderAnalysisResult(result);
     analysisMessage.textContent = "Analysis complete.";
-    return true;
+    return { ok: true, message: "" };
   } catch (error) {
-    analysisMessage.textContent = error instanceof Error ? error.message : "Could not analyze the resume file.";
+    const message = error instanceof Error ? error.message : "Could not analyze the resume file.";
+    analysisMessage.textContent = message;
     analysisMessage.classList.add("is-error");
-    return false;
+    return { ok: false, message };
   }
 };
 
