@@ -6,7 +6,8 @@ Set DATABASE_URL before running: python seed.py
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from main import AssessmentScore, Base, Candidate, JobPosting, engine
+from database import Base, engine
+from main import AssessmentScore, Candidate, JobPosting
 
 
 SAMPLE_CANDIDATES = [

@@ -151,6 +151,12 @@ class AuthenticationEndpointTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 401)
 
+    def test_api_health_checks_database_connectivity(self):
+        response = self.client.get("/api/health")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok", "database": "connected"})
+
     def test_startup_migration_adds_new_fields_to_existing_table(self):
         migration_engine = create_engine(
             "sqlite://",

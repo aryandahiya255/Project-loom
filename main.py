@@ -21,7 +21,7 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import AsyncIterator, Generator
+from typing import AsyncIterator
 from urllib.parse import urlparse
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
@@ -50,27 +50,22 @@ from sqlalchemy import (
     Integer,
     JSON,
     String,
-    create_engine,
     func,
     inspect,
     select,
     text,
 )
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import (
     Mapped,
     Session,
-    declarative_base,
     mapped_column,
     relationship,
     selectinload,
-    sessionmaker,
 )
+from database import Base, SessionLocal as SessionLocal, engine, get_db
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.formparsers import MultiPartException
-
-
-Base = declarative_base()
 
 
 class Candidate(Base):
@@ -393,15 +388,6 @@ SKILL_CATALOG = [
 ]
 
 
-def _database_url() -> str | None:
-    url = os.getenv("DATABASE_URL")
-    if url and url.startswith("postgres://"):
-        return "postgresql+psycopg://" + url.removeprefix("postgres://")
-    if url and url.startswith("postgresql://"):
-        return "postgresql+psycopg://" + url.removeprefix("postgresql://")
-    return url
-
-
 def _allowed_origins() -> list[str]:
     origins = [
         "https://loomproject.netlify.app",
@@ -431,9 +417,6 @@ def _allowed_origins() -> list[str]:
     return list(dict.fromkeys(origins))
 
 
-DATABASE_URL = _database_url()
-engine = create_engine(DATABASE_URL, pool_pre_ping=True) if DATABASE_URL else None
-SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False) if engine else None
 PASSWORD_HASHER = PasswordHash.recommended()
 _DUMMY_PASSWORD_HASH = PASSWORD_HASHER.hash("not-a-valid-password")
 BEARER_SCHEME = HTTPBearer(auto_error=False)
@@ -489,20 +472,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
-
-
-def get_db() -> Generator[Session, None, None]:
-    if SessionLocal is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database is not configured. Set DATABASE_URL to a PostgreSQL connection URL.",
-        )
-
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _jwt_secret_key() -> str:
@@ -768,6 +737,19 @@ def _assessment_session_state(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/health")
+def database_health(db: Session = Depends(get_db)) -> dict[str, str]:
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection failed.",
+        ) from exc
+
+    return {"status": "ok", "database": "connected"}
 
 
 @app.get("/api/skills", response_model=list[SkillCatalogItem])
