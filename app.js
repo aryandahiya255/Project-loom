@@ -11,10 +11,176 @@ const resumeAnalysisForm = document.querySelector("#resume-analysis-form");
 const skillBadges = document.querySelector(".skill-badges");
 const skillCount = document.querySelector("#skill-count");
 const profileBadgeMessage = document.querySelector("#profile-badge-message");
+const incomingInvitations = document.querySelector("#incoming-invitations");
+const invitationsMessage = document.querySelector("#invitations-message");
+let invitationRequestId = 0;
 
 function showMessage(element, message, isError = false) {
   element.textContent = message;
   element.classList.toggle("is-error", isError);
+}
+
+function formatInvitationDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Date unavailable";
+  }
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  });
+}
+
+function createInvitationText(tagName, className, text) {
+  const element = document.createElement(tagName);
+  element.className = className;
+  element.textContent = text;
+  return element;
+}
+
+function renderInvitationCard(invitation) {
+  const card = createInvitationText("article", "invitation-card", "");
+  const heading = document.createElement("header");
+  heading.className = "invitation-card-heading";
+  const company = createInvitationText("p", "invitation-company", invitation.recruiter.company_name);
+  const jobTitle = createInvitationText("h3", "invitation-job-title", invitation.job_title);
+  heading.append(company, jobTitle);
+
+  const recruiter = createInvitationText(
+    "p",
+    "invitation-recruiter",
+    `${invitation.recruiter.name} · ${invitation.recruiter.designation}`
+  );
+  const sentDate = createInvitationText(
+    "p",
+    "invitation-date",
+    `Sent ${formatInvitationDate(invitation.created_at)}`
+  );
+  const message = createInvitationText("p", "invitation-message", invitation.message);
+  card.append(heading, recruiter, sentDate, message);
+
+  if (invitation.status === "accepted" || invitation.status === "declined") {
+    const status = invitation.status === "accepted" ? "Accepted" : "Declined";
+    card.append(
+      createInvitationText(
+        "p",
+        `invitation-status is-${invitation.status}`,
+        invitation.status === "accepted"
+          ? "Accepted — your contact details have been shared."
+          : "You declined this invitation."
+      )
+    );
+    if (invitation.status === "accepted" && invitation.recruiter.work_email) {
+      const contact = createInvitationText(
+        "a",
+        "invitation-contact",
+        `Contact ${invitation.recruiter.name}: ${invitation.recruiter.work_email}`
+      );
+      contact.href = `mailto:${invitation.recruiter.work_email}`;
+      card.append(contact);
+    }
+    return card;
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "invitation-actions";
+  const acceptButton = createInvitationText("button", "button invitation-accept", "Accept Invite & Share Contact Info");
+  acceptButton.type = "button";
+  const declineButton = createInvitationText("button", "button invitation-decline", "Decline");
+  declineButton.type = "button";
+  acceptButton.addEventListener("click", () => {
+    void respondToInvitation(invitation.id, "accepted", acceptButton);
+  });
+  declineButton.addEventListener("click", () => {
+    void respondToInvitation(invitation.id, "declined", declineButton);
+  });
+  actions.append(acceptButton, declineButton);
+  card.append(actions);
+  return card;
+}
+
+function renderIncomingInvitations(invitations) {
+  incomingInvitations.replaceChildren();
+  if (!invitations.length) {
+    incomingInvitations.append(
+      createInvitationText("p", "invitation-empty", "You do not have any recruiter invitations yet.")
+    );
+    return;
+  }
+
+  const cards = document.createDocumentFragment();
+  invitations.forEach((invitation) => {
+    cards.append(renderInvitationCard(invitation));
+  });
+  incomingInvitations.append(cards);
+}
+
+async function loadIncomingInvitations() {
+  const requestId = ++invitationRequestId;
+  if (!sessionStorage.getItem("loom_access_token")) {
+    incomingInvitations.replaceChildren(
+      createInvitationText("p", "invitation-empty", "Sign in to view recruiter invitations.")
+    );
+    incomingInvitations.setAttribute("aria-busy", "false");
+    showMessage(invitationsMessage, "");
+    return false;
+  }
+
+  incomingInvitations.setAttribute("aria-busy", "true");
+  showMessage(invitationsMessage, "");
+  try {
+    const invitations = await window.loomApi.request("/candidate/invitations");
+    if (requestId !== invitationRequestId) {
+      return false;
+    }
+    if (!Array.isArray(invitations)) {
+      throw new Error("The invitation API returned an invalid response.");
+    }
+    renderIncomingInvitations(invitations);
+    return true;
+  } catch (error) {
+    if (requestId === invitationRequestId) {
+      incomingInvitations.replaceChildren();
+      showMessage(
+        invitationsMessage,
+        error instanceof Error ? error.message : "Could not load recruiter invitations.",
+        true
+      );
+    }
+    return false;
+  } finally {
+    if (requestId === invitationRequestId) {
+      incomingInvitations.setAttribute("aria-busy", "false");
+    }
+  }
+}
+
+async function respondToInvitation(invitationId, status, button) {
+  button.disabled = true;
+  showMessage(invitationsMessage, "");
+  try {
+    await window.loomApi.request(`/candidate/invitations/${invitationId}/respond`, {
+      method: "POST",
+      body: { status }
+    });
+    const refreshed = await loadIncomingInvitations();
+    if (refreshed) {
+      showMessage(
+        invitationsMessage,
+        status === "accepted"
+          ? "Invite accepted. Your contact details are now shared."
+          : "Invite declined."
+      );
+    }
+  } catch (error) {
+    showMessage(
+      invitationsMessage,
+      error instanceof Error ? error.message : "Could not update this invitation.",
+      true
+    );
+    button.disabled = false;
+  }
 }
 
 function renderGithubLinks(links) {
@@ -293,6 +459,7 @@ function renderActiveAccount(account) {
   profileStatus.lastChild.textContent = " Active profile";
   authOpenButton.hidden = true;
   signOutButton.hidden = false;
+  void loadIncomingInvitations();
 }
 
 function resetActiveAccount() {
@@ -307,6 +474,7 @@ function resetActiveAccount() {
   profileStatus.lastChild.textContent = " Student portal";
   authOpenButton.hidden = false;
   signOutButton.hidden = true;
+  void loadIncomingInvitations();
 }
 
 async function authenticateUser(email, password) {
@@ -456,6 +624,9 @@ async function initializeStudentDashboard() {
     }
   }
   await loadStudentProfile();
+  if (!sessionStorage.getItem("loom_access_token")) {
+    await loadIncomingInvitations();
+  }
 }
 
 void initializeStudentDashboard();

@@ -21,8 +21,9 @@ import json
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, Literal
 from urllib.parse import urlparse
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
@@ -46,6 +47,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Enum as SQLAlchemyEnum,
     Float,
     ForeignKey,
     Integer,
@@ -69,6 +71,12 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.formparsers import MultiPartException
 
 
+class InterviewInvitationStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+
 class Candidate(Base):
     __tablename__ = "candidates"
 
@@ -77,6 +85,7 @@ class Candidate(Base):
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     college_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
     target_role: Mapped[str | None] = mapped_column(String(120), nullable=True)
     github_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     profile_photo_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
@@ -90,6 +99,10 @@ class Candidate(Base):
     github_repos: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
     assessment_scores: Mapped[list[AssessmentScore]] = relationship(
+        back_populates="candidate",
+        cascade="all, delete-orphan",
+    )
+    interview_invitations: Mapped[list[InterviewInvitation]] = relationship(
         back_populates="candidate",
         cascade="all, delete-orphan",
     )
@@ -124,6 +137,65 @@ class JobPosting(Base):
     required_skills: Mapped[list[str]] = mapped_column(JSON, nullable=False)
 
 
+class Recruiter(Base):
+    __tablename__ = "recruiters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    company_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    company_website_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    company_logo_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    work_email: Mapped[str] = mapped_column(String(254), unique=True, index=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    designation: Mapped[str] = mapped_column(String(120), nullable=False)
+    verified_company_domain: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    invitations: Mapped[list[InterviewInvitation]] = relationship(
+        back_populates="recruiter",
+        cascade="all, delete-orphan",
+    )
+
+
+class InterviewInvitation(Base):
+    __tablename__ = "interview_invitations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    recruiter_id: Mapped[int] = mapped_column(
+        ForeignKey("recruiters.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("candidates.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    job_title: Mapped[str] = mapped_column(String(200), nullable=False)
+    message: Mapped[str] = mapped_column(String(4000), nullable=False)
+    status: Mapped[InterviewInvitationStatus] = mapped_column(
+        SQLAlchemyEnum(
+            InterviewInvitationStatus,
+            name="interview_invitation_status",
+            values_callable=lambda enum_values: [value.value for value in enum_values],
+        ),
+        default=InterviewInvitationStatus.PENDING,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    recruiter: Mapped[Recruiter] = relationship(back_populates="invitations")
+    candidate: Mapped[Candidate] = relationship(back_populates="interview_invitations")
+
+
 class CandidateCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     email: str = Field(
@@ -145,6 +217,19 @@ class CandidateRead(CandidateCreate):
     created_at: datetime
 
 
+class CandidateDirectoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    github_url: str | None
+    profile_photo_url: str | None
+    bio: str | None
+    skills: list[str]
+    github_repos: list[str]
+    created_at: datetime
+
+
 class UserRegister(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     email: str = Field(
@@ -154,6 +239,7 @@ class UserRegister(BaseModel):
     )
     password: str = Field(min_length=8, max_length=128)
     college_name: str = Field(min_length=1, max_length=160)
+    phone_number: str | None = Field(default=None, max_length=32)
     target_role: str = Field(min_length=1, max_length=120)
     github_url: str = Field(min_length=1, max_length=2048)
 
@@ -164,6 +250,13 @@ class UserRegister(BaseModel):
         if not value:
             raise ValueError("This field must not be blank.")
         return value
+
+    @field_validator("phone_number")
+    @classmethod
+    def normalize_phone_number(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
 
 
 class UserLogin(BaseModel):
@@ -182,6 +275,7 @@ class UserProfileRead(BaseModel):
     name: str
     email: str
     college_name: str | None
+    phone_number: str | None
     target_role: str | None
     github_url: str | None
     created_at: datetime
@@ -190,6 +284,130 @@ class UserProfileRead(BaseModel):
 class AccessTokenRead(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class RecruiterRegister(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    company_name: str = Field(min_length=1, max_length=160)
+    company_website_url: str | None = Field(default=None, max_length=2048)
+    company_logo_url: str | None = Field(default=None, max_length=2048)
+    work_email: str = Field(
+        min_length=3,
+        max_length=254,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    )
+    password: str = Field(min_length=8, max_length=128)
+    designation: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name", "company_name", "designation")
+    @classmethod
+    def strip_nonempty_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("This field must not be blank.")
+        return value
+
+    @field_validator("work_email")
+    @classmethod
+    def normalize_work_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+    @field_validator("company_website_url")
+    @classmethod
+    def validate_company_website_url(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        value = value.strip()
+        parsed_url = urlparse(value)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname:
+            raise ValueError("Enter a valid company website URL.")
+        return value
+
+
+class RecruiterLogin(BaseModel):
+    work_email: str = Field(
+        min_length=3,
+        max_length=254,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    )
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("work_email")
+    @classmethod
+    def normalize_work_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class RecruiterProfileRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    company_name: str
+    company_website_url: str | None
+    company_logo_url: str | None
+    work_email: str
+    designation: str
+    verified_company_domain: bool
+    created_at: datetime
+
+
+class RecruiterInvitationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    company_name: str
+    company_website_url: str | None
+    company_logo_url: str | None
+    work_email: str | None
+    designation: str
+    verified_company_domain: bool
+    created_at: datetime
+
+
+class InterviewInvitationCreate(BaseModel):
+    candidate_id: int = Field(gt=0)
+    job_title: str = Field(min_length=1, max_length=200)
+    message: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("job_title", "message")
+    @classmethod
+    def strip_nonempty_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("This field must not be blank.")
+        return value
+
+
+class InterviewInvitationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    recruiter_id: int
+    candidate_id: int
+    job_title: str
+    message: str
+    status: InterviewInvitationStatus
+    created_at: datetime
+    recruiter: RecruiterInvitationRead
+
+
+class InterviewInvitationRespond(BaseModel):
+    status: Literal["accepted", "declined"]
+
+
+class InterviewInvitationResponseRead(BaseModel):
+    id: int
+    status: InterviewInvitationStatus
+    created_at: datetime
+
+
+class CandidateContactRead(BaseModel):
+    candidate_id: int
+    name: str
+    email: str
+    phone_number: str | None
 
 
 class VerifiedScoreRead(BaseModel):
@@ -433,6 +651,7 @@ def _migrate_candidate_auth_columns() -> None:
     column_definitions = {
         "hashed_password": "VARCHAR(255)",
         "college_name": "VARCHAR(160)",
+        "phone_number": "VARCHAR(32)",
         "target_role": "VARCHAR(120)",
     }
     existing_columns = {
@@ -446,6 +665,20 @@ def _migrate_candidate_auth_columns() -> None:
                 )
 
 
+def _migrate_recruiter_profile_columns() -> None:
+    if engine is None or "recruiters" not in inspect(engine).get_table_names():
+        return
+
+    existing_columns = {
+        column["name"] for column in inspect(engine).get_columns("recruiters")
+    }
+    if "company_website_url" not in existing_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE recruiters ADD COLUMN company_website_url VARCHAR(2048)")
+            )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global redis_client
@@ -453,6 +686,7 @@ async def lifespan(_: FastAPI):
     if engine is not None:
         Base.metadata.create_all(bind=engine)
         _migrate_candidate_auth_columns()
+        _migrate_recruiter_profile_columns()
 
     redis_client = redis.from_url(
         os.getenv("REDIS_URL", "redis://localhost:6379/0"),
@@ -485,19 +719,18 @@ def _jwt_secret_key() -> str:
     return secret_key
 
 
-def _create_access_token(candidate_id: int) -> str:
+def _create_access_token(user_id: int, role: str = "candidate") -> str:
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=JWT_ACCESS_TOKEN_MINUTES)
     return jwt.encode(
-        {"sub": str(candidate_id), "exp": expires_at},
+        {"sub": str(user_id), "role": role, "exp": expires_at},
         _jwt_secret_key(),
         algorithm=JWT_ALGORITHM,
     )
 
 
-def get_current_candidate(
-    credentials: HTTPAuthorizationCredentials | None = Depends(BEARER_SCHEME),
-    db: Session = Depends(get_db),
-) -> Candidate:
+def _decode_access_token(
+    credentials: HTTPAuthorizationCredentials | None,
+) -> tuple[int, str]:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -515,9 +748,12 @@ def get_current_candidate(
         subject = claims.get("sub")
         if not isinstance(subject, str) or not subject.isdigit():
             raise ValueError("Invalid token subject.")
-        candidate_id = int(subject)
-        if candidate_id < 1:
+        user_id = int(subject)
+        if user_id < 1:
             raise ValueError("Invalid token subject.")
+        role = claims.get("role", "candidate")
+        if role not in {"candidate", "recruiter"}:
+            raise ValueError("Invalid token role.")
     except (InvalidTokenError, TypeError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -525,7 +761,21 @@ def get_current_candidate(
             headers={"WWW-Authenticate": "Bearer"},
         ) from error
 
-    candidate = db.get(Candidate, candidate_id)
+    return user_id, role
+
+
+def get_current_candidate(
+    credentials: HTTPAuthorizationCredentials | None = Depends(BEARER_SCHEME),
+    db: Session = Depends(get_db),
+) -> Candidate:
+    user_id, role = _decode_access_token(credentials)
+    if role != "candidate":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Candidate access required.",
+        )
+
+    candidate = db.get(Candidate, user_id)
     if candidate is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -533,6 +783,27 @@ def get_current_candidate(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return candidate
+
+
+def get_current_recruiter(
+    credentials: HTTPAuthorizationCredentials | None = Depends(BEARER_SCHEME),
+    db: Session = Depends(get_db),
+) -> Recruiter:
+    user_id, role = _decode_access_token(credentials)
+    if role != "recruiter":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Recruiter access required.",
+        )
+
+    recruiter = db.get(Recruiter, user_id)
+    if recruiter is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired access token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return recruiter
 
 
 async def get_redis() -> AsyncIterator[Redis]:
@@ -907,6 +1178,7 @@ def register_user(payload: UserRegister, db: Session = Depends(get_db)) -> Candi
         email=email,
         hashed_password=PASSWORD_HASHER.hash(payload.password),
         college_name=payload.college_name.strip(),
+        phone_number=payload.phone_number,
         target_role=payload.target_role.strip(),
         github_url=payload.github_url,
     )
@@ -950,7 +1222,216 @@ def read_authenticated_user(
     return candidate
 
 
-@app.get("/candidates", response_model=list[CandidateRead])
+@app.post(
+    "/api/auth/recruiter/register",
+    response_model=AccessTokenRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_recruiter(
+    payload: RecruiterRegister,
+    db: Session = Depends(get_db),
+) -> AccessTokenRead:
+    work_email = payload.work_email.strip().lower()
+    existing_recruiter = db.scalar(
+        select(Recruiter).where(func.lower(Recruiter.work_email) == work_email)
+    )
+    if existing_recruiter is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A recruiter with this work email already exists.",
+        )
+
+    recruiter = Recruiter(
+        name=payload.name,
+        company_name=payload.company_name,
+        company_website_url=payload.company_website_url,
+        company_logo_url=payload.company_logo_url,
+        work_email=work_email,
+        hashed_password=PASSWORD_HASHER.hash(payload.password),
+        designation=payload.designation,
+        verified_company_domain=False,
+    )
+    db.add(recruiter)
+    try:
+        db.flush()
+        access_token = _create_access_token(recruiter.id, role="recruiter")
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A recruiter with this work email already exists.",
+        ) from error
+    return AccessTokenRead(access_token=access_token)
+
+
+@app.post("/api/auth/recruiter/login", response_model=AccessTokenRead)
+def login_recruiter(
+    payload: RecruiterLogin,
+    db: Session = Depends(get_db),
+) -> AccessTokenRead:
+    work_email = payload.work_email.strip().lower()
+    recruiter = db.scalar(
+        select(Recruiter).where(func.lower(Recruiter.work_email) == work_email)
+    )
+    password_hash = (
+        recruiter.hashed_password if recruiter is not None else _DUMMY_PASSWORD_HASH
+    )
+    password_is_valid = PASSWORD_HASHER.verify(payload.password, password_hash)
+    if recruiter is None or not password_is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect work email or password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return AccessTokenRead(
+        access_token=_create_access_token(recruiter.id, role="recruiter")
+    )
+
+
+@app.get("/api/auth/recruiter/me", response_model=RecruiterProfileRead)
+def read_authenticated_recruiter(
+    recruiter: Recruiter = Depends(get_current_recruiter),
+) -> Recruiter:
+    return recruiter
+
+
+@app.post(
+    "/api/recruiter/invite",
+    response_model=InterviewInvitationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def invite_candidate(
+    payload: InterviewInvitationCreate,
+    recruiter: Recruiter = Depends(get_current_recruiter),
+    db: Session = Depends(get_db),
+) -> InterviewInvitation:
+    candidate = db.get(Candidate, payload.candidate_id)
+    if candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found.",
+        )
+
+    invitation = InterviewInvitation(
+        recruiter=recruiter,
+        candidate=candidate,
+        job_title=payload.job_title,
+        message=payload.message,
+        status=InterviewInvitationStatus.PENDING,
+    )
+    db.add(invitation)
+    db.commit()
+    db.refresh(invitation)
+    return invitation
+
+
+@app.get(
+    "/api/candidate/invitations",
+    response_model=list[InterviewInvitationRead],
+)
+def list_candidate_invitations(
+    candidate: Candidate = Depends(get_current_candidate),
+    db: Session = Depends(get_db),
+) -> list[InterviewInvitationRead]:
+    invitations = list(
+        db.scalars(
+            select(InterviewInvitation)
+            .options(selectinload(InterviewInvitation.recruiter))
+            .where(InterviewInvitation.candidate_id == candidate.id)
+            .order_by(InterviewInvitation.created_at.desc())
+        ).all()
+    )
+    serialized_invitations: list[InterviewInvitationRead] = []
+    for invitation in invitations:
+        recruiter_profile = RecruiterInvitationRead.model_validate(invitation.recruiter)
+        if invitation.status != InterviewInvitationStatus.ACCEPTED:
+            recruiter_profile = recruiter_profile.model_copy(update={"work_email": None})
+        serialized_invitations.append(
+            InterviewInvitationRead(
+                id=invitation.id,
+                recruiter_id=invitation.recruiter_id,
+                candidate_id=invitation.candidate_id,
+                job_title=invitation.job_title,
+                message=invitation.message,
+                status=invitation.status,
+                created_at=invitation.created_at,
+                recruiter=recruiter_profile,
+            )
+        )
+    return serialized_invitations
+
+
+@app.post(
+    "/api/candidate/invitations/{invitation_id}/respond",
+    response_model=InterviewInvitationResponseRead,
+)
+def respond_to_invitation(
+    invitation_id: int,
+    payload: InterviewInvitationRespond,
+    candidate: Candidate = Depends(get_current_candidate),
+    db: Session = Depends(get_db),
+) -> InterviewInvitation:
+    invitation = db.scalar(
+        select(InterviewInvitation).where(
+            InterviewInvitation.id == invitation_id,
+            InterviewInvitation.candidate_id == candidate.id,
+        )
+    )
+    if invitation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found.",
+        )
+
+    invitation.status = InterviewInvitationStatus(payload.status)
+    db.commit()
+    db.refresh(invitation)
+    return invitation
+
+
+@app.get(
+    "/api/recruiter/invitations/{invitation_id}/contact",
+    response_model=CandidateContactRead,
+)
+def get_invited_candidate_contact(
+    invitation_id: int,
+    recruiter: Recruiter = Depends(get_current_recruiter),
+    db: Session = Depends(get_db),
+) -> CandidateContactRead:
+    invitation = db.scalar(
+        select(InterviewInvitation).where(
+            InterviewInvitation.id == invitation_id,
+            InterviewInvitation.recruiter_id == recruiter.id,
+        )
+    )
+    if invitation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found.",
+        )
+    if invitation.status != InterviewInvitationStatus.ACCEPTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Candidate contact details are available after accepting the invitation.",
+        )
+
+    candidate = db.get(Candidate, invitation.candidate_id)
+    if candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found.",
+        )
+    return CandidateContactRead(
+        candidate_id=candidate.id,
+        name=candidate.name,
+        email=candidate.email,
+        phone_number=candidate.phone_number,
+    )
+
+
+@app.get("/candidates", response_model=list[CandidateDirectoryRead])
 def list_candidates(db: Session = Depends(get_db)) -> list[Candidate]:
     return list(db.scalars(select(Candidate).order_by(Candidate.id)).all())
 
@@ -1055,7 +1536,6 @@ def list_api_candidates(
                 CandidateFullRead(
                     **candidate_data,
                     name=candidate.name,
-                    email=candidate.email,
                     profile_photo_url=candidate.profile_photo_url,
                     github_url=candidate.github_url,
                     bio=candidate.bio,

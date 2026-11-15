@@ -15,6 +15,11 @@
     <nav class="nav container" aria-label="Main navigation">
       <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>
       <a class="nav-link" href="index.html"><span aria-hidden="true">←</span> Back to home</a>
+      <div class="recruiter-auth-area" id="recruiter-auth-area" aria-live="polite">
+        <button class="button button-primary" id="recruiter-auth-open" type="button">
+          Recruiter Login / Post Job
+        </button>
+      </div>
     </nav>
   </header>
 
@@ -47,6 +52,80 @@
       on a production backend.
     </p>
   </main>
+
+  <dialog class="auth-dialog recruiter-dialog" id="recruiter-auth-dialog" aria-labelledby="recruiter-auth-title">
+    <div class="auth-card">
+      <button class="auth-close" id="recruiter-auth-close" type="button" aria-label="Close recruiter sign in dialog">×</button>
+      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Recruiter workspace</p>
+      <h2 id="recruiter-auth-title">Welcome to Loom</h2>
+      <p class="auth-description">Set up your recruiter profile and connect with promising candidates.</p>
+      <div class="auth-tabs" role="tablist" aria-label="Recruiter account options">
+        <button class="auth-tab is-active" id="recruiter-signup-tab" type="button" role="tab" aria-selected="true" aria-controls="recruiter-signup-panel">Sign Up</button>
+        <button class="auth-tab" id="recruiter-signin-tab" type="button" role="tab" aria-selected="false" aria-controls="recruiter-signin-panel" tabindex="-1">Sign In</button>
+      </div>
+      <form class="auth-form" id="recruiter-signup-panel" role="tabpanel" aria-labelledby="recruiter-signup-tab">
+        <div class="auth-fields">
+          <label class="auth-field" for="recruiter-signup-name">Full Name
+            <input id="recruiter-signup-name" name="name" type="text" autocomplete="name" maxlength="120" placeholder="Jane Doe" required>
+          </label>
+          <label class="auth-field" for="recruiter-signup-email">Work Email
+            <input id="recruiter-signup-email" name="work_email" type="email" autocomplete="email" maxlength="254" placeholder="jane@company.com" required>
+          </label>
+          <label class="auth-field" for="recruiter-signup-password">Password
+            <input id="recruiter-signup-password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="At least 8 characters" required>
+          </label>
+          <label class="auth-field" for="recruiter-signup-company">Company Name
+            <input id="recruiter-signup-company" name="company_name" type="text" autocomplete="organization" maxlength="160" placeholder="TechCorp" required>
+          </label>
+          <label class="auth-field" for="recruiter-signup-designation">Designation
+            <input id="recruiter-signup-designation" name="designation" type="text" autocomplete="organization-title" maxlength="120" placeholder="Talent Partner" required>
+          </label>
+          <label class="auth-field" for="recruiter-signup-website">Company Website URL <span class="field-optional">(optional)</span>
+            <input id="recruiter-signup-website" name="company_website_url" type="url" autocomplete="url" maxlength="2048" placeholder="https://techcorp.com">
+          </label>
+        </div>
+        <p class="auth-message" id="recruiter-signup-message" role="status" aria-live="polite"></p>
+        <button class="button button-primary auth-submit" type="submit">Create recruiter profile <span aria-hidden="true">↗</span></button>
+      </form>
+      <form class="auth-form" id="recruiter-signin-panel" role="tabpanel" aria-labelledby="recruiter-signin-tab" hidden>
+        <div class="auth-fields auth-fields-single">
+          <label class="auth-field" for="recruiter-signin-email">Work Email
+            <input id="recruiter-signin-email" name="work_email" type="email" autocomplete="email" maxlength="254" placeholder="jane@company.com" required>
+          </label>
+          <label class="auth-field" for="recruiter-signin-password">Password
+            <input id="recruiter-signin-password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
+          </label>
+        </div>
+        <p class="auth-message" id="recruiter-signin-message" role="status" aria-live="polite"></p>
+        <button class="button button-primary auth-submit" type="submit">Sign in <span aria-hidden="true">↗</span></button>
+      </form>
+    </div>
+  </dialog>
+
+  <dialog class="auth-dialog invite-dialog" id="invite-dialog" aria-labelledby="invite-dialog-title">
+    <div class="auth-card">
+      <button class="auth-close" id="invite-close" type="button" aria-label="Close interview request dialog">×</button>
+      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Candidate outreach</p>
+      <h2 id="invite-dialog-title">Send Interview Request</h2>
+      <p class="auth-description">Share the role and a personal message with this candidate.</p>
+      <form class="auth-form" id="invite-form">
+        <div class="auth-fields auth-fields-single">
+          <label class="auth-field" for="invite-job-title">Job Title
+            <input id="invite-job-title" name="job_title" type="text" maxlength="200" placeholder="Full-Stack Engineer" required>
+          </label>
+          <label class="auth-field" for="invite-message">Outreach Message / Offer Details
+            <textarea id="invite-message" name="message" rows="6" maxlength="4000" placeholder="Tell the candidate why you are reaching out..." required></textarea>
+          </label>
+        </div>
+        <p class="auth-message" id="invite-message-status" role="status" aria-live="polite"></p>
+        <div class="invite-form-actions">
+          <button class="button button-secondary" id="invite-cancel" type="button">Cancel</button>
+          <button class="button button-primary auth-submit" type="submit">Send interview request <span aria-hidden="true">↗</span></button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+  <p class="recruiter-toast" id="recruiter-toast" role="status" aria-live="polite" hidden></p>
 
   <footer class="footer container">
     <a class="wordmark" href="index.html" aria-label="Loom home">loom<span>.</span></a>
