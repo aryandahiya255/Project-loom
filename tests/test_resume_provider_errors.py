@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from google.genai.errors import APIError
 
@@ -21,6 +22,23 @@ class ResumeProviderErrorTests(unittest.TestCase):
         )
 
         self.assertIn("quota", main._resume_provider_error_detail(error).lower())
+
+    def test_invalid_argument_includes_reason_without_api_key(self):
+        error = APIError(
+            400,
+            {
+                "error": {
+                    "status": "INVALID_ARGUMENT",
+                    "message": "Request rejected for key test-secret-value",
+                }
+            },
+        )
+
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-secret-value"}):
+            detail = main._resume_provider_error_detail(error)
+
+        self.assertIn("Request rejected", detail)
+        self.assertNotIn("test-secret-value", detail)
 
 
 if __name__ == "__main__":

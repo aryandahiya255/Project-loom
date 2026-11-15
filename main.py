@@ -1170,6 +1170,13 @@ def _resume_provider_error_detail(error: APIError) -> str:
         return "Gemini API quota or rate limit reached. Check the API project's quota."
     if error.code == 404 or provider_status == "NOT_FOUND":
         return "The configured Gemini model was not found. Check GEMINI_MODEL."
+    if error.code == 400 or provider_status == "INVALID_ARGUMENT":
+        provider_message = " ".join((error.message or "").split())
+        api_key = os.getenv("GEMINI_API_KEY", "")
+        if api_key:
+            provider_message = provider_message.replace(api_key, "[redacted]")
+        if provider_message:
+            return f"Gemini rejected the request: {provider_message[:240]}"
     return f"Gemini analysis failed (HTTP {error.code}, {provider_status}). Check the API key, model, and quota."
 
 
