@@ -2423,7 +2423,7 @@ async def career_advisor_chat(
                 config=GenerateContentConfig(
                     system_instruction=system_instruction,
                     temperature=0.4,
-                    max_output_tokens=600,
+                    max_output_tokens=4096,
                 ),
             )
             response = await chat.send_message(payload.message)
