@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import time
 from io import BytesIO
 import json
 from collections import Counter
@@ -967,6 +968,64 @@ BEARER_SCHEME = HTTPBearer(auto_error=False)
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_MINUTES = 30
 redis_client: Redis | None = None
+redis_available = False
+
+
+class _InMemoryRedis:
+    """Minimal async Redis stand-in used when no Redis server is reachable.
+
+    Implements only the operations the assessment session flow needs
+    (``set`` with expiry/``nx``, ``pttl``, ``delete``, ``aclose``). State is
+    per-process, which is sufficient for single-instance deployments that do
+    not have a Redis server configured.
+    """
+
+    def __init__(self) -> None:
+        self._values: dict[str, str] = {}
+        self._expires_at: dict[str, float | None] = {}
+
+    def _purge_if_expired(self, key: str, now: float) -> None:
+        expires_at = self._expires_at.get(key)
+        if expires_at is not None and now >= expires_at:
+            self._values.pop(key, None)
+            self._expires_at.pop(key, None)
+
+    async def set(
+        self,
+        key: str,
+        value: str,
+        ex: int | None = None,
+        nx: bool = False,
+    ) -> bool | None:
+        now = time.monotonic()
+        self._purge_if_expired(key, now)
+        if nx and key in self._values:
+            return None
+        self._values[key] = value
+        self._expires_at[key] = now + ex if ex else None
+        return True
+
+    async def pttl(self, key: str) -> int:
+        now = time.monotonic()
+        self._purge_if_expired(key, now)
+        if key not in self._values:
+            return -2
+        expires_at = self._expires_at.get(key)
+        if expires_at is None:
+            return -1
+        return max(0, int((expires_at - now) * 1000))
+
+    async def delete(self, key: str) -> int:
+        existed = key in self._values
+        self._values.pop(key, None)
+        self._expires_at.pop(key, None)
+        return int(existed)
+
+    async def aclose(self) -> None:
+        return None
+
+
+_memory_redis: _InMemoryRedis | None = None
 
 
 def _migrate_candidate_auth_columns() -> None:
@@ -1028,7 +1087,7 @@ def _migrate_assessment_score_subject_columns() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global redis_client
+    global redis_client, redis_available, _memory_redis
 
     if engine is not None:
         Base.metadata.create_all(bind=engine)
@@ -1036,15 +1095,35 @@ async def lifespan(_: FastAPI):
         _migrate_recruiter_profile_columns()
         _migrate_assessment_score_subject_columns()
 
-    redis_client = redis.from_url(
-        os.getenv("REDIS_URL", "redis://localhost:6379/0"),
-        decode_responses=True,
-    )
+    _memory_redis = _InMemoryRedis()
+
+    redis_url = os.getenv("REDIS_URL", "").strip()
+    if redis_url:
+        candidate_client = redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
+        try:
+            await candidate_client.ping()
+            redis_client = candidate_client
+            redis_available = True
+        except Exception:
+            redis_available = False
+            redis_client = None
+            try:
+                await candidate_client.aclose()
+            except Exception:
+                pass
+
     try:
         yield
     finally:
-        await redis_client.aclose()
+        if redis_client is not None:
+            await redis_client.aclose()
         redis_client = None
+        redis_available = False
 
 
 app = FastAPI(title="Loom API", version="1.0.0", lifespan=lifespan)
@@ -1155,12 +1234,15 @@ def get_current_recruiter(
 
 
 async def get_redis() -> AsyncIterator[Redis]:
-    if redis_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Redis is unavailable. Configure REDIS_URL and start Redis.",
-        )
-    yield redis_client
+    global _memory_redis
+
+    if redis_available and redis_client is not None:
+        yield redis_client
+        return
+
+    if _memory_redis is None:
+        _memory_redis = _InMemoryRedis()
+    yield _memory_redis  # type: ignore[misc]
 
 
 def _quiz_session_key(candidate_id: int, subject_code: str) -> str:
