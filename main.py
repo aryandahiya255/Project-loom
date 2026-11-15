@@ -6,7 +6,8 @@ postgresql+psycopg://user:password@localhost:5432/loom
 Set FRONTEND_URL to the deployed frontend origin. FRONTEND_ORIGINS can contain
 additional comma-separated browser origins.
 Set GEMINI_API_KEY to enable resume analysis, and optionally GEMINI_MODEL to
-choose the Google Gen AI model. Set REDIS_URL to configure assessment sessions.
+choose the Google Gen AI model (defaults to gemini-3.5-flash-lite). Set REDIS_URL
+to configure assessment sessions.
 Set JWT_SECRET_KEY to a secret of at least 32 characters to enable authentication.
 """
 
@@ -1188,7 +1189,7 @@ async def _run_resume_ats(contents: str | list[str | Part]) -> ResumeATSResponse
             detail="Resume parsing is not configured. Set GEMINI_API_KEY.",
         )
 
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
     try:
         async with genai.Client(api_key=api_key).aio as client:
             response = await client.models.generate_content(
